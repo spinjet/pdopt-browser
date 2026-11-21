@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import {
   VueFlow,
   ConnectionMode,
@@ -9,6 +9,16 @@ import {
   type Connection,
 } from "@vue-flow/core";
 import { useProject } from "./store";
+import { encode } from "./processing";
+import CantileverTutorial from "./CantileverTutorial.vue";
+import RawDataPreview from "./RawDataPreview.vue";
+import {
+  cantileverCsv,
+  cantileverInputs,
+  stressCutsMpa,
+  deflectionCutsMm,
+  massCutsKg,
+} from "./cantilever-example";
 import {
   cptSize,
   LIMITS,
@@ -19,6 +29,45 @@ import {
 const st = useProject(),
   flow = useVueFlow({ id: "build" });
 const stateNames = ref<string[]>([]);
+const manualName = ref("");
+const manualStates = ref("");
+function addManualNode() {
+  if (st.addManualNode(manualName.value)) manualName.value = "";
+}
+const method = ref<"mle" | "dirichlet">("dirichlet"),
+  alpha = ref(1);
+const canTrain = computed(
+  () =>
+    st.project.variables.length > 0 &&
+    !st.cycles.length &&
+    (!!st.dataset || st.project.variables.every((v) => !v.columnId)),
+);
+const needsTraining = computed(
+  () => st.project.cpts.length !== st.project.variables.length,
+);
+let previewAttempt = "";
+watch(
+  [
+    () => st.activeTab,
+    () => st.dataset,
+    () => st.busy,
+    () => st.trainingStamp(),
+  ],
+  ([tab, dataset, busy, stamp], previous) => {
+    if (dataset !== previous?.[1] || tab !== previous?.[0]) previewAttempt = "";
+    if (
+      tab !== "states" ||
+      !dataset ||
+      busy ||
+      !st.project.variables.some((v) => v.columnId) ||
+      st.trainingPreview?.stamp === stamp ||
+      previewAttempt === stamp
+    )
+      return;
+    previewAttempt = stamp;
+    void st.previewTraining();
+  },
+);
 const selectedEdge = ref(""),
   graphCanvas = ref<HTMLDivElement>();
 const csvInput = ref<HTMLInputElement>(),
@@ -37,6 +86,10 @@ const source = ref(""),
 const selected = computed(() =>
   st.project.variables.find((v) => v.id === st.selected),
 );
+watch(
+  () => selected.value?.states,
+  (states) => (manualStates.value = states?.join("\n") ?? ""),
+);
 const cptEstimate = computed(() => {
   if (!selected.value) return "";
   try {
@@ -50,7 +103,8 @@ const selectedCpt = computed(() =>
 );
 const selectedCounts = computed(() => {
   const i = st.project.variables.findIndex((v) => v.id === st.selected);
-  return st.trainingPreview?.stamp === st.trainingStamp()
+  return selected.value?.columnId &&
+    st.trainingPreview?.stamp === st.trainingStamp()
     ? st.trainingPreview.counts[i]
     : undefined;
 });
@@ -176,22 +230,86 @@ function dropEdge(id: string) {
   st.project.edges = st.project.edges.filter((e) => e.id !== id);
   st.touch();
 }
-async function example() {
-  const imported = await st.importCsv(
-    "Load,Material,Failure\nLow,Steel,No\nLow,Steel,No\nLow,Aluminium,No\nLow,Aluminium,Yes\nHigh,Steel,No\nHigh,Steel,Yes\nHigh,Aluminium,Yes\nHigh,Aluminium,Yes\n",
-    "engineering-example.csv",
+async function autoLayout() {
+  if (!(await st.layout())) return;
+  await nextTick();
+  await flow.fitView({ padding: 0.25 });
+}
+async function cantileverExample() {
+  if (!(await st.importCsv(cantileverCsv(), "cantilever-beam.csv"))) return;
+  for (const [i, { cuts }] of cantileverInputs.entries())
+    await st.configure(`c${i}`, "discretised", "manual", cuts.length + 1, cuts);
+  await st.configure("c3", "categorical");
+  await st.configure(
+    "c4",
+    "discretised",
+    "manual",
+    stressCutsMpa.length + 1,
+    stressCutsMpa,
   );
-  if (!imported || !st.dataset) return;
-  for (let i = 0; i < 3; i++) await st.configure(`c${i}`, "categorical");
-  const [a, b, c] = st.project.variables;
-  if (a && b && c) {
-    st.addEdge(a.id, c.id);
-    st.addEdge(b.id, c.id);
-    await st.layout();
-    await st.previewTraining();
-    st.notice =
-      "Example ready. Open Train & Inference to train and query the model.";
+  await st.configure(
+    "c5",
+    "discretised",
+    "manual",
+    deflectionCutsMm.length + 1,
+    deflectionCutsMm,
+  );
+  await st.configure("c6", "categorical");
+  await st.configure(
+    "c7",
+    "discretised",
+    "manual",
+    massCutsKg.length + 1,
+    massCutsKg,
+  );
+  const [width, depth, load, material, stress, deflection, failure, mass] =
+    st.project.variables;
+  if (!mass || st.project.variables.length !== 8) return;
+
+  for (const input of [width, depth, load]) {
+    st.addEdge(input.id, stress.id, "bottom", "top");
+    st.addEdge(input.id, deflection.id, "bottom", "top");
   }
+  st.addEdge(material.id, deflection.id, "bottom", "top");
+  st.addEdge(stress.id, failure.id, "bottom", "top");
+  st.addEdge(material.id, failure.id, "bottom", "top");
+  for (const input of [width, depth, material]) {
+    st.addEdge(input.id, mass.id, "bottom", "top");
+  }
+  st.project.queryGroups = [
+    {
+      id: crypto.randomUUID(),
+      name: "Stress and deflection",
+      targetIds: [stress.id, deflection.id],
+    },
+    {
+      id: crypto.randomUUID(),
+      name: "Bending failure",
+      targetIds: [failure.id],
+    },
+    {
+      id: crypto.randomUUID(),
+      name: "Beam mass",
+      targetIds: [mass.id],
+    },
+    {
+      id: crypto.randomUUID(),
+      name: "Design space",
+      targetIds: [width.id, depth.id, material.id],
+      savedEvidence: {
+        [load.id]: encode(load, "100"),
+        [failure.id]: failure.states.indexOf("Passes"),
+        [mass.id]: { kind: "threshold", operator: "lt", value: 1 },
+      },
+    },
+  ];
+  st.touch("query");
+  // The seeded design covers every combination of the default parent bins.
+  method.value = "mle";
+  await autoLayout();
+  await st.previewTraining();
+  st.notice =
+    "Cantilever example ready. Open States & training to train the model.";
 }
 function parentAssignment(
   c: NonNullable<typeof selectedCpt.value>,
@@ -209,10 +327,15 @@ function parentAssignment(
 </script>
 <template>
   <div>
-    <main class="workspace">
+    <main
+      id="network-panel"
+      class="workspace network-workspace"
+      role="tabpanel"
+      aria-labelledby="network-tab"
+      v-show="st.activeTab === 'network'"
+    >
       <aside class="data-panel panel" aria-label="Dataset and variables">
         <div class="panel-heading">
-          <span class="eyebrow">01 / SOURCE</span>
           <h2>Dataset & variables</h2>
         </div>
         <label class="field"
@@ -249,13 +372,25 @@ function parentAssignment(
         <p v-else class="muted">
           Start with a local CSV, or explore a small synthetic example.
         </p>
-        <button
-          v-if="!st.project.variables.length"
-          @click="example"
-          :disabled="st.busy"
-        >
-          Load engineering example
-        </button>
+        <div class="example-option">
+          <button
+            v-if="!st.project.variables.length"
+            @click="cantileverExample"
+            :disabled="st.busy"
+          >
+            Load cantilever beam example
+          </button>
+          <CantileverTutorial />
+        </div>
+        <details class="manual-node">
+          <summary>Add a manual node</summary>
+          <form @submit.prevent="addManualNode">
+            <label class="field"
+              >Variable name<input v-model="manualName" maxlength="200"
+            /></label>
+            <button :disabled="st.busy">Add node</button>
+          </form>
+        </details>
         <details v-if="st.dataset" class="missing-settings">
           <summary>Missing-data policy</summary>
           <p>
@@ -316,23 +451,11 @@ function parentAssignment(
             </button>
           </div>
         </div>
-        <details v-if="st.dataset" class="preview">
-          <summary>Raw data preview (first 10 rows)</summary>
-          <div class="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th v-for="h in st.dataset.headers" :key="h">{{ h }}</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(row, i) in st.dataset.rows.slice(0, 10)" :key="i">
-                  <td v-for="(cell, j) in row" :key="j">{{ cell }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </details>
+        <RawDataPreview
+          v-if="st.dataset"
+          :key="st.dataset.hash"
+          :dataset="st.dataset"
+        />
         <label class="check embed"
           ><input type="checkbox" v-model="st.embedDataset" />Include raw CSV in
           project download</label
@@ -345,10 +468,17 @@ function parentAssignment(
       <section class="canvas-panel" aria-label="Network editor">
         <div class="canvas-heading">
           <div>
-            <span class="eyebrow">02 / MODEL</span>
             <h1>Build your network</h1>
           </div>
           <div class="canvas-tools">
+            <button
+              v-if="selected"
+              class="danger"
+              :disabled="st.busy"
+              @click="st.removeNode(selected.id)"
+            >
+              Delete variable
+            </button>
             <button
               class="danger"
               :disabled="!st.project.edges.some((e) => e.id === selectedEdge)"
@@ -356,9 +486,12 @@ function parentAssignment(
             >
               Delete selected connection
             </button>
+            <button v-if="selected" @click="st.activeTab = 'states'">
+              Edit states
+            </button>
             <button @click="flow.fitView({ padding: 0.25 })">Fit view</button
             ><button
-              @click="st.layout()"
+              @click="autoLayout"
               :disabled="st.busy || !st.project.variables.length"
             >
               Auto layout
@@ -374,7 +507,7 @@ function parentAssignment(
               .join(", ")
           }}. Remove a connection before training or inference.
         </div>
-        <p class="tiny muted">
+        <p class="canvas-help tiny muted">
           Click a connection to select it, then delete it using the button above
           or Delete / Backspace. All connections can also be removed in
           Connections below.
@@ -458,7 +591,9 @@ function parentAssignment(
           </div>
         </div>
         <div class="graph-footer">
-          <span>Drag handles to connect · Click a variable to inspect</span
+          <span
+            >Drag handles to connect · Select a variable to edit its
+            states</span
           ><span>{{
             st.cycles.length
               ? "Invalid draft"
@@ -532,9 +667,16 @@ function parentAssignment(
           </ul>
         </details>
       </section>
-      <aside class="inspector panel" aria-label="Variable settings">
+    </main>
+    <main
+      id="states-panel"
+      class="states-workspace"
+      role="tabpanel"
+      aria-labelledby="states-tab"
+      v-show="st.activeTab === 'states'"
+    >
+      <section class="inspector panel" aria-label="Variable settings">
         <div class="panel-heading">
-          <span class="eyebrow">03 / INSPECT</span>
           <h2>Variable settings</h2>
         </div>
         <label class="field"
@@ -556,131 +698,150 @@ function parentAssignment(
               @change="st.touch('display')"
               maxlength="200"
           /></label>
-          <div class="tiny muted">
-            Source:
-            {{
-              st.project.dataset?.headers[Number(selected.columnId.slice(1))]
-            }}
-          </div>
-          <label class="field"
-            >Representation<select v-model="representation">
-              <option value="categorical">Categorical</option>
-              <option value="finiteNumeric">Finite numeric states</option>
-              <option value="discretised">Discretised numeric</option>
-            </select></label
-          >
-          <template v-if="representation === 'discretised'"
-            ><label class="field"
-              >Binning method<select v-model="binMethod">
-                <option value="equalWidth">Equal width</option>
-                <option value="quantile">Quantile</option>
-                <option value="manual">Manual thresholds</option>
-              </select></label
-            ><label v-if="binMethod !== 'manual'" class="field"
-              >Requested bins<input
-                type="number"
-                min="2"
-                max="64"
-                v-model.number="bins" /></label
-            ><label v-else class="field"
-              >Thresholds (comma-separated)<input
-                v-model="manual"
-                placeholder="10, 20, 30" /></label
-          ></template>
-          <button
-            class="wide"
-            @click="configure"
-            :disabled="st.busy || !st.dataset"
-          >
-            Apply variable settings
-          </button>
-          <label v-if="selected.binning" class="field"
-            >Decimal places<input
-              type="number"
-              min="0"
-              max="12"
-              step="1"
-              :value="selected.displayDecimals"
-              @change="
-                (e) => {
-                  st.setPrecision(
-                    selected!.id,
-                    Number((e.target as HTMLInputElement).value),
-                  );
-                  (e.target as HTMLInputElement).value = String(
-                    selected!.displayDecimals,
-                  );
-                }
-              "
-          /></label>
-          <p
-            v-if="precisionWarning(selected)"
-            class="precision-warning"
-            role="status"
-          >
-            Rounded boundaries look identical. Increase decimal places; exact
-            thresholds are unchanged.
-          </p>
-          <details v-if="selected.binning">
-            <summary>Exact thresholds</summary>
-            <code>{{ selected.binning.cuts.join(", ") }}</code>
-          </details>
-          <label class="field"
-            >Parameter mode<select
-              :value="selected.parameterMode"
-              @change="
-                st.setParameterMode(
-                  selected!.id,
-                  ($event.target as HTMLSelectElement).value as
-                    'learned' | 'uniform',
-                )
-              "
+          <template v-if="!selected.columnId">
+            <p class="muted">
+              Manual variables use a uniform probability for each state.
+            </p>
+            <label class="field"
+              >States (one per line)
+              <textarea v-model="manualStates" rows="5"></textarea>
+            </label>
+            <button
+              :disabled="st.busy"
+              @click="st.setManualStates(selected.id, manualStates)"
             >
-              <option value="learned">Learn from data</option>
-              <option value="uniform">Force uniform CPT</option>
-            </select></label
-          >
-          <p v-if="selected.parameterMode === 'uniform'" class="tiny muted">
-            Training assigns equal probability to every state in every parent
-            configuration. Incoming edges are retained but have no effect on
-            this CPT. This does not rebalance the data or guarantee a uniform
-            posterior after evidence.
-          </p>
-          <p class="tiny muted">{{ cptEstimate }}</p>
-          <div class="section-label">
-            {{ selected.states.length }} EFFECTIVE STATES
-          </div>
-          <p v-if="selectedCounts?.some((n) => n === 0)" class="tiny muted">
-            Some states have no retained observations. Review the bins and
-            training prior before interpreting results.
-          </p>
-          <ol class="states">
-            <li v-for="(state, i) in selected.states" :key="i">
-              <label
-                v-if="selected.representation === 'categorical'"
-                class="state-name-field"
-                ><small>Source: {{ state }}</small
-                ><input
-                  :aria-label="`State display name for ${state}`"
-                  v-model="stateNames[i]"
-                  maxlength="200"
-              /></label>
-              <span v-else>{{ stateLabel(selected, i) }}</span
-              ><small v-if="selectedCounts">{{ selectedCounts[i] }} rows</small>
-            </li>
-          </ol>
-          <button
-            v-if="selected.representation === 'categorical'"
-            @click="st.renameStates(selected.id, stateNames)"
-            class="wide"
-          >
-            Apply state names
-          </button>
-          <p v-if="selected.binning" class="tiny muted">
-            Exact cuts enter the upper bin. Outer bins cover values beyond the
-            fitted range. Numeric values are discretised, not modelled as
-            continuous densities.
-          </p>
+              Apply states
+            </button>
+          </template>
+          <template v-else>
+            <div class="tiny muted">
+              Source:
+              {{
+                st.project.dataset?.headers[Number(selected.columnId.slice(1))]
+              }}
+            </div>
+            <label class="field"
+              >Representation<select v-model="representation">
+                <option value="categorical">Categorical</option>
+                <option value="finiteNumeric">Finite numeric states</option>
+                <option value="discretised">Discretised numeric</option>
+              </select></label
+            >
+            <template v-if="representation === 'discretised'"
+              ><label class="field"
+                >Binning method<select v-model="binMethod">
+                  <option value="equalWidth">Equal width</option>
+                  <option value="quantile">Quantile</option>
+                  <option value="manual">Manual thresholds</option>
+                </select></label
+              ><label v-if="binMethod !== 'manual'" class="field"
+                >Requested bins<input
+                  type="number"
+                  min="2"
+                  max="64"
+                  v-model.number="bins" /></label
+              ><label v-else class="field"
+                >Thresholds (comma-separated)<input
+                  v-model="manual"
+                  placeholder="10, 20, 30" /></label
+            ></template>
+            <button
+              class="wide"
+              @click="configure"
+              :disabled="st.busy || !st.dataset"
+            >
+              Apply variable settings
+            </button>
+            <label v-if="selected.binning" class="field"
+              >Decimal places<input
+                type="number"
+                min="0"
+                max="12"
+                step="1"
+                :value="selected.displayDecimals"
+                @change="
+                  (e) => {
+                    st.setPrecision(
+                      selected!.id,
+                      Number((e.target as HTMLInputElement).value),
+                    );
+                    (e.target as HTMLInputElement).value = String(
+                      selected!.displayDecimals,
+                    );
+                  }
+                "
+            /></label>
+            <p
+              v-if="precisionWarning(selected)"
+              class="precision-warning"
+              role="status"
+            >
+              Rounded boundaries look identical. Increase decimal places; exact
+              thresholds are unchanged.
+            </p>
+            <details v-if="selected.binning">
+              <summary>Exact thresholds</summary>
+              <code>{{ selected.binning.cuts.join(", ") }}</code>
+            </details>
+            <label class="field"
+              >Parameter mode<select
+                :value="selected.parameterMode"
+                @change="
+                  st.setParameterMode(
+                    selected!.id,
+                    ($event.target as HTMLSelectElement).value as
+                      'learned' | 'uniform',
+                  )
+                "
+              >
+                <option value="learned">Learn from data</option>
+                <option value="uniform">Force uniform CPT</option>
+              </select></label
+            >
+            <p v-if="selected.parameterMode === 'uniform'" class="tiny muted">
+              Training assigns equal probability to every state in every parent
+              configuration. Incoming edges are retained but have no effect on
+              this CPT. This does not rebalance the data or guarantee a uniform
+              posterior after evidence.
+            </p>
+            <p class="tiny muted">{{ cptEstimate }}</p>
+            <div class="section-label">
+              {{ selected.states.length }} EFFECTIVE STATES
+            </div>
+            <p v-if="selectedCounts?.some((n) => n === 0)" class="tiny muted">
+              Some states have no retained observations. Review the bins and
+              training prior before interpreting results.
+            </p>
+            <ol class="states">
+              <li v-for="(state, i) in selected.states" :key="i">
+                <label
+                  v-if="selected.representation === 'categorical'"
+                  class="state-name-field"
+                  ><small>Source: {{ state }}</small
+                  ><input
+                    :aria-label="`State display name for ${state}`"
+                    v-model="stateNames[i]"
+                    maxlength="200"
+                /></label>
+                <span v-else>{{ stateLabel(selected, i) }}</span
+                ><small v-if="selectedCounts"
+                  >{{ selectedCounts[i] }} rows</small
+                >
+              </li>
+            </ol>
+            <button
+              v-if="selected.representation === 'categorical'"
+              @click="st.renameStates(selected.id, stateNames)"
+              class="wide"
+            >
+              Apply state names
+            </button>
+            <p v-if="selected.binning" class="tiny muted">
+              Exact cuts enter the upper bin. Outer bins cover values beyond the
+              fitted range. Numeric values are discretised, not modelled as
+              continuous densities.
+            </p>
+          </template>
           <details v-if="selectedCpt" class="cpt">
             <summary>Trained CPT · {{ selectedCpt.origin }}</summary>
             <p class="tiny">
@@ -745,15 +906,64 @@ function parentAssignment(
           <p v-else class="tiny muted">
             CPT not trained for the current variable configuration.
           </p>
-          <button class="danger wide" @click="st.removeNode(selected.id)">
-            Delete variable
-          </button>
         </template>
         <p v-else class="muted">
-          Select a node to configure its states, inspect its bins, and review
-          learned probabilities.
+          Select a variable to edit its states and review its probabilities.
         </p>
-      </aside>
+      </section>
+      <section class="panel training-panel" aria-label="Training">
+        <h2>Training</h2>
+        <p v-if="st.project.variables.length">
+          {{ needsTraining ? "Model needs training" : "Model trained" }}
+        </p>
+        <p v-else>Add variables in Network to train a model.</p>
+        <p v-if="st.trainingPreview?.stamp === st.trainingStamp()">
+          {{ st.trainingPreview.retained }} rows retained ·
+          {{ st.trainingPreview.dropped }} excluded
+        </p>
+        <p v-if="st.project.variables.some((v) => v.columnId) && !st.dataset">
+          Reattach the matching CSV in Network to train.
+        </p>
+        <p v-if="st.cycles.length">
+          Resolve the cycle in Network before training.
+        </p>
+        <button
+          class="primary"
+          @click="st.train(method, alpha)"
+          :disabled="st.busy || !canTrain"
+        >
+          Train model
+        </button>
+        <details class="training-options">
+          <summary>Advanced training settings</summary>
+          <label class="field"
+            >Estimator
+            <select v-model="method">
+              <option value="dirichlet">Symmetric Dirichlet</option>
+              <option value="mle">Maximum likelihood</option>
+            </select>
+          </label>
+          <label v-if="method === 'dirichlet'" class="field"
+            >α per cell
+            <input
+              type="number"
+              min="0.000001"
+              step="0.1"
+              v-model.number="alpha"
+            />
+          </label>
+          <button
+            @click="st.previewTraining()"
+            :disabled="
+              st.busy ||
+              !st.dataset ||
+              !st.project.variables.some((v) => v.columnId)
+            "
+          >
+            Review training data
+          </button>
+        </details>
+      </section>
     </main>
     <input
       data-testid="csv-file"

@@ -1,7 +1,7 @@
 import type { Project } from "./domain";
 import { stateLabel } from "./domain";
 import type { JointResult } from "./engine";
-import { nextDown } from "./numbers";
+import { nextDown, randomGenerator } from "./numbers";
 import { csvCell } from "./files";
 import { zipSync, strToU8 } from "fflate";
 export interface SampleOptions {
@@ -9,17 +9,7 @@ export interface SampleOptions {
   seed: number;
   bounds: Record<string, { min: number; max: number }>;
 }
-/** Versioned deterministic generator; not for security or encryption. */
-export function randomGenerator(seed: number) {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
+export { randomGenerator } from "./numbers";
 export function sampleArchive(
   project: Project,
   groupId: string,

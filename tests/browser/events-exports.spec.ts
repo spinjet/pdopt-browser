@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { unzipSync, strFromU8 } from "fflate";
+import { openDiscreteFixture } from "./fixtures";
 const base = process.env.TEST_PATH || "/";
 async function init(page: Page) {
   page.on("dialog", (d) => d.accept());
@@ -17,6 +18,9 @@ async function init(page: Page) {
       .getByRole("button", { name: `Add ${label}`, exact: true })
       .click();
   await page
+    .getByRole("tab", { name: "States & training", exact: true })
+    .click();
+  await page
     .getByRole("combobox", { name: "Selected variable", exact: true })
     .selectOption({ label: "Temperature" });
   await page
@@ -29,17 +33,19 @@ async function init(page: Page) {
   await expect(
     page.getByText("3 EFFECTIVE STATES", { exact: true }),
   ).toBeVisible();
+  await page.getByRole("tab", { name: "Network", exact: true }).click();
 }
 async function train(page: Page) {
-  await page.getByRole("button", { name: "Review training data" }).click();
+  await page
+    .getByRole("tab", { name: "States & training", exact: true })
+    .click();
   await expect(page.getByText("5 rows retained · 0 excluded")).toBeVisible();
   await page.getByRole("button", { name: "Train model", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("Trained 2 CPTs");
 }
 async function run(page: Page) {
-  await page
-    .getByRole("button", { name: "Run inference", exact: true })
-    .click();
+  await page.getByRole("tab", { name: "Queries", exact: true }).click();
+  await page.getByRole("button", { name: "Run query", exact: true }).click();
   await expect(
     page.getByText("Current results", { exact: true }),
   ).toBeVisible();
@@ -54,7 +60,7 @@ test("four-side connections, exact numeric events, image and dependent sample do
   });
   await init(page);
   const handles = page
-    .locator("#build-panel .vue-flow__node")
+    .locator("#network-panel .vue-flow__node")
     .first()
     .locator(".vue-flow__handle");
   await expect(handles).toHaveCount(4);
@@ -74,9 +80,10 @@ test("four-side connections, exact numeric events, image and dependent sample do
     .selectOption("bottom");
   await c.getByRole("button", { name: "Connect", exact: true }).click();
   await page
-    .getByRole("tab", { name: "Train & Inference", exact: true })
+    .getByRole("tab", { name: "States & training", exact: true })
     .click();
   await train(page);
+  await page.getByRole("tab", { name: "Queries", exact: true }).click();
   const targets = page.getByRole("group", {
     name: "Targets for active query",
     exact: true,
@@ -89,7 +96,7 @@ test("four-side connections, exact numeric events, image and dependent sample do
     .fill("7");
   await event.getByRole("button", { name: "Apply threshold" }).click();
   await expect(
-    page.getByRole("button", { name: "Run inference", exact: true }),
+    page.getByRole("button", { name: "Run query", exact: true }),
   ).toBeDisabled();
   await event.getByRole("button", { name: "Add exact cut & retrain" }).click();
   await expect(
@@ -101,9 +108,23 @@ test("four-side connections, exact numeric events, image and dependent sample do
   ).toBeVisible();
   await train(page);
   await run(page);
+  await page
+    .getByRole("button", { name: "Network graph", exact: true })
+    .click();
+  const graph = page.getByRole("region", { name: "Inference network" });
+  const edge = graph.locator(".vue-flow__edge-path");
+  await expect(edge).toBeVisible();
+  const marker = graph.locator("marker");
+  const markerId = await marker.getAttribute("id");
+  expect(markerId).toMatch(/^inference__/);
+  await expect(edge).toHaveAttribute("marker-end", `url('#${markerId}')`);
   await expect(
-    page.locator("#inference-panel .network-node").first(),
+    page.locator("#results-panel .network-node").first(),
   ).toContainText("0.0%");
+  await page
+    .getByRole("button", { name: "Query results", exact: true })
+    .click();
+  await page.getByText("Export results", { exact: true }).click();
   await page.getByText("Sample queried distribution", { exact: true }).click();
   await page
     .getByRole("spinbutton", { name: "Sample count", exact: true })
@@ -147,22 +168,24 @@ test("categorical allowed-state selection invalidates old results and can be cle
   page,
 }) => {
   await page.goto(base);
-  await page.getByRole("button", { name: "Load engineering example" }).click();
+  await openDiscreteFixture(page);
   await page
-    .getByRole("tab", { name: "Train & Inference", exact: true })
+    .getByRole("tab", { name: "States & training", exact: true })
     .click();
   await page.getByRole("button", { name: "Train model", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("Trained 3 CPTs");
   await run(page);
+  await page.getByRole("tab", { name: "Queries", exact: true }).click();
   const event = page.locator(".evidence-control").first();
   await event.locator("summary").click();
   await event.getByRole("listbox").selectOption(["0", "1"]);
-  await expect(
-    page.getByText("Outdated results", { exact: true }),
-  ).toBeVisible();
+  await page.getByRole("tab", { name: "Results", exact: true }).click();
+  await expect(page.getByText(/Outdated results/)).toBeVisible();
   await run(page);
+  await page.getByRole("tab", { name: "Queries", exact: true }).click();
   await event.getByRole("listbox").selectOption(["1"]);
   await run(page);
+  await page.getByRole("tab", { name: "Queries", exact: true }).click();
   await page
     .getByRole("button", { name: "Clear evidence", exact: true })
     .click();
@@ -173,7 +196,7 @@ test("top-to-bottom pointer connections preserve parent-to-child direction", asy
   page,
 }) => {
   await init(page);
-  const nodes = page.locator("#build-panel .vue-flow__node");
+  const nodes = page.locator("#network-panel .vue-flow__node");
   const source = await nodes
       .nth(0)
       .locator(".vue-flow__handle-top")
@@ -195,7 +218,7 @@ test("top-to-bottom pointer connections preserve parent-to-child direction", asy
     { steps: 20 },
   );
   await page.mouse.up();
-  await expect(page.locator("#build-panel .vue-flow__edge")).toHaveCount(1);
+  await expect(page.locator("#network-panel .vue-flow__edge")).toHaveCount(1);
   const save = page.waitForEvent("download");
   await page.getByRole("button", { name: "Save project", exact: true }).click();
   const saved = JSON.parse(
@@ -213,11 +236,9 @@ for (const operation of ["graph", "sample"] as const)
     page,
   }) => {
     await page.goto(base);
+    await openDiscreteFixture(page);
     await page
-      .getByRole("button", { name: "Load engineering example" })
-      .click();
-    await page
-      .getByRole("tab", { name: "Train & Inference", exact: true })
+      .getByRole("tab", { name: "States & training", exact: true })
       .click();
     await page
       .getByRole("button", { name: "Train model", exact: true })
@@ -234,6 +255,8 @@ for (const operation of ["graph", "sample"] as const)
       await barrier;
       await route.continue().catch(() => {});
     });
+    if (operation === "sample")
+      await page.getByText("Export results", { exact: true }).click();
     await page
       .getByText(
         operation === "graph"
@@ -255,17 +278,19 @@ for (const operation of ["graph", "sample"] as const)
       await page
         .getByRole("button", { name: "Cancel computation", exact: true })
         .click();
-    else
+    else {
+      await page.getByRole("tab", { name: "Queries", exact: true }).click();
       await page
         .getByRole("group", { name: "Shared evidence", exact: true })
         .getByRole("combobox", { name: "Load", exact: true })
         .selectOption({ label: "High" });
+    }
     release();
     await expect(page.getByRole("alert")).toContainText(
       operation === "graph" ? "cancelled" : "outdated",
     );
     await page.unroute(pattern);
-    await expect(page.locator("#inference-panel .network-node")).toHaveCount(3);
+    await expect(page.locator("#results-panel .network-node")).toHaveCount(3);
     if (operation === "sample") await run(page);
     const download = page.waitForEvent("download");
     await button.click();
@@ -279,26 +304,29 @@ test("selected connections can be deleted visibly and with the keyboard, and del
 }) => {
   page.on("dialog", (d) => d.accept());
   await page.goto(base);
-  await page.getByRole("button", { name: "Load engineering example" }).click();
-  await expect(page.getByRole("status")).toContainText("Example ready");
-  const edges = page.locator("#build-panel .vue-flow__edge");
+  await openDiscreteFixture(page);
+  const edges = page.locator("#network-panel .vue-flow__edge");
   await expect(edges).toHaveCount(2);
   const remove = page.getByRole("button", {
     name: "Delete selected connection",
     exact: true,
   });
+  async function selectFirstEdge() {
+    const path = edges.first().locator(".vue-flow__edge-interaction");
+    await path.scrollIntoViewIfNeeded();
+    const { x, y } = await path.evaluate((element: SVGPathElement) => {
+      const midpoint = element.getPointAtLength(element.getTotalLength() / 2);
+      const screen = midpoint.matrixTransform(element.getScreenCTM()!);
+      return { x: screen.x, y: screen.y };
+    });
+    await page.mouse.click(x, y);
+  }
   await expect(remove).toBeDisabled();
-  await edges
-    .first()
-    .locator(".vue-flow__edge-interaction")
-    .click({ force: true });
+  await selectFirstEdge();
   await expect(remove).toBeEnabled();
   await remove.click();
   await expect(edges).toHaveCount(1);
-  await edges
-    .first()
-    .locator(".vue-flow__edge-interaction")
-    .click({ force: true });
+  await selectFirstEdge();
   await page.keyboard.press("Delete");
   await expect(edges).toHaveCount(0);
   const save = page.waitForEvent("download");
@@ -310,7 +338,7 @@ test("selected connections can be deleted visibly and with the keyboard, and del
   expect(saved.variables).toHaveLength(3);
 });
 
-test("export uses vertical hierarchy for bottom/top connections and offers direction overrides", async ({
+test("auto layout and export use vertical hierarchy for bottom/top connections", async ({
   page,
 }) => {
   await init(page);
@@ -329,6 +357,18 @@ test("export uses vertical hierarchy for bottom/top connections and offers direc
     .getByRole("combobox", { name: "To side", exact: true })
     .selectOption("top");
   await controls.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.getByRole("button", { name: "Auto layout", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Auto layout", exact: true }),
+  ).toBeEnabled();
+  const projectDownload = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Save project", exact: true }).click();
+  const saved = JSON.parse(
+    await readFile((await (await projectDownload).path())!, "utf8"),
+  );
+  const [parentNode, childNode] = saved.variables;
+  expect(parentNode.position.y).toBeLessThan(childNode.position.y);
+  expect(parentNode.position.x).toBe(childNode.position.x);
   await page.getByText("Export network image", { exact: true }).click();
   const direction = page.getByRole("combobox", {
     name: "Layout direction",

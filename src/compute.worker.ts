@@ -8,6 +8,7 @@ import {
 } from "./domain";
 import { parseCsv, configureVariable, prepareRows, train } from "./processing";
 import { infer, ModelError } from "./engine";
+import { graphDirection } from "./graph-direction";
 const requestSchema = z.object({
   id: z.number().int(),
   op: z.enum([
@@ -87,22 +88,35 @@ self.onmessage = async ({ data }) => {
           throw new Error("Layout must load locally.");
         const elk = new ELK({ workerUrl: layoutUrl.href });
         try {
+          const direction = { TB: "DOWN", BT: "UP", LR: "RIGHT", RL: "LEFT" };
+          const portSides = {
+            top: "NORTH",
+            bottom: "SOUTH",
+            left: "WEST",
+            right: "EAST",
+          };
           const g = await elk.layout({
             id: "root",
             layoutOptions: {
               "elk.algorithm": "layered",
-              "elk.direction": "RIGHT",
-              "elk.spacing.nodeNode": "65",
+              "elk.direction": direction[graphDirection(project)],
+              "elk.spacing.nodeNode": "100",
+              "elk.layered.spacing.nodeNodeBetweenLayers": "210",
             },
             children: project.variables.map((v) => ({
               id: v.id,
               width: 180,
-              height: 80,
+              height: 94,
+              layoutOptions: { "elk.portConstraints": "FIXED_SIDE" },
+              ports: Object.entries(portSides).map(([handle, side]) => ({
+                id: `${v.id}:${handle}`,
+                layoutOptions: { "elk.port.side": side },
+              })),
             })),
             edges: project.edges.map((e) => ({
               id: e.id,
-              sources: [e.source],
-              targets: [e.target],
+              sources: [`${e.source}:${e.sourceHandle ?? "right"}`],
+              targets: [`${e.target}:${e.targetHandle ?? "left"}`],
             })),
           });
           result = g.children?.map((n) => ({
@@ -145,11 +159,17 @@ self.onmessage = async ({ data }) => {
           project.queryGroups,
         );
       } else {
-        if (!p.dataset || p.dataset.hash !== project.dataset?.hash)
+        if (
+          p.dataset
+            ? p.dataset.hash !== project.dataset?.hash
+            : request.op !== "train" ||
+              project.variables.some((v) => v.columnId)
+        )
           throw new Error(
             "Reattach the matching source dataset before training.",
           );
         if (request.op === "configure") {
+          if (!p.dataset) throw new Error("Attach a source CSV first.");
           const o = z
             .object({
               columnId: z.string(),
@@ -173,18 +193,17 @@ self.onmessage = async ({ data }) => {
             o.manual,
           );
         } else if (request.op === "preview") {
+          if (!p.dataset) throw new Error("Attach a source CSV first.");
           const prepared = prepareRows(p.dataset, project);
           result = {
             retained: prepared.retained,
             dropped: prepared.dropped,
-            counts: project.variables.map((v, i) =>
-              v.states.map((_, k) =>
-                prepared.encoded.reduce(
-                  (n, row) => n + Number(row[i] === k),
-                  0,
-                ),
-              ),
-            ),
+            counts: project.variables.map((v, i) => {
+              const counts = v.states.map(() => 0);
+              if (v.columnId)
+                for (const row of prepared.encoded) counts[row[i]]++;
+              return counts;
+            }),
           };
         } else {
           const o = z

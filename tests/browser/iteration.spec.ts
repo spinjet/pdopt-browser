@@ -1,30 +1,25 @@
 import { test, expect, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
+import { openDiscreteFixture } from "./fixtures";
 const base = process.env.TEST_PATH || "/";
 async function load(page: Page) {
   page.on("dialog", (d) => d.accept());
   await page.goto(base);
-  await page.getByRole("button", { name: "Load engineering example" }).click();
-  await expect(page.getByRole("status")).toContainText("Example ready");
+  await openDiscreteFixture(page);
 }
 async function analysis(page: Page) {
   await page
-    .getByRole("tab", { name: "Train & Inference", exact: true })
+    .getByRole("tab", { name: "States & training", exact: true })
     .click();
 }
-async function build(page: Page) {
-  await page.getByRole("tab", { name: "Build", exact: true }).click();
-}
 async function train(page: Page) {
-  await page.getByRole("button", { name: "Review training data" }).click();
   await expect(page.getByText("8 rows retained · 0 excluded")).toBeVisible();
   await page.getByRole("button", { name: "Train model", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("Trained 3 CPTs");
 }
 async function run(page: Page) {
-  await page
-    .getByRole("button", { name: "Run inference", exact: true })
-    .click();
+  await page.getByRole("tab", { name: "Queries", exact: true }).click();
+  await page.getByRole("button", { name: "Run query", exact: true }).click();
   await expect(
     page.getByText("Current results", { exact: true }),
   ).toBeVisible();
@@ -35,11 +30,14 @@ test("branding, state aliases, uniform CPT training and presentation-only edits"
   await load(page);
   await expect(page).toHaveTitle("PDOPT-BN");
   await expect(
-    page.getByRole("tab", { name: "Build", exact: true }),
+    page.getByRole("tab", { name: "Network", exact: true }),
   ).toHaveAttribute("aria-selected", "true");
   await expect(
     page.getByRole("group", { name: "Shared evidence", exact: true }),
   ).not.toBeVisible();
+  await page
+    .getByRole("tab", { name: "States & training", exact: true })
+    .click();
   await page
     .getByRole("combobox", { name: "Selected variable", exact: true })
     .selectOption({ label: "Failure" });
@@ -53,11 +51,15 @@ test("branding, state aliases, uniform CPT training and presentation-only edits"
   await page
     .getByRole("combobox", { name: "Parameter mode", exact: true })
     .selectOption("uniform");
-  await analysis(page);
+  await page.getByRole("tab", { name: "Queries", exact: true }).click();
   await expect(
-    page.getByRole("button", { name: "Run inference", exact: true }),
+    page.getByRole("button", { name: "Run query", exact: true }),
   ).toBeDisabled();
+  await page
+    .getByRole("tab", { name: "States & training", exact: true })
+    .click();
   await train(page);
+  await page.getByRole("tab", { name: "Queries", exact: true }).click();
   const targets = page.getByRole("group", {
     name: "Targets for active query",
     exact: true,
@@ -77,17 +79,25 @@ test("branding, state aliases, uniform CPT training and presentation-only edits"
   await run(page);
   await expect(page.locator(".marginal-table")).toContainText("Operational");
   await expect(page.locator(".marginal-table")).toContainText("50.000%");
+  await page
+    .getByRole("button", { name: "Network graph", exact: true })
+    .click();
   await expect(
     page
       .locator(".probability-node")
       .filter({ has: page.locator("strong", { hasText: "Failure" }) }),
   ).toContainText("Uniform CPT");
-  await build(page);
+  await page
+    .getByRole("tab", { name: "States & training", exact: true })
+    .click();
   await page
     .getByRole("textbox", { name: "State display name for No", exact: true })
     .fill("Working");
   await page.getByRole("button", { name: "Apply state names" }).click();
-  await analysis(page);
+  await page.getByRole("tab", { name: "Results", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Query results", exact: true })
+    .click();
   await expect(
     page.getByText("Current results", { exact: true }),
   ).toBeVisible();
@@ -104,13 +114,15 @@ test("branding, state aliases, uniform CPT training and presentation-only edits"
   expect(c.origin).toBe("uniform");
   expect(c.values.every((p: number) => p === 0.5)).toBe(true);
   expect(c.counts.reduce((a: number, b: number) => a + b, 0)).toBe(8);
-  await build(page);
+  await page
+    .getByRole("tab", { name: "States & training", exact: true })
+    .click();
   await page
     .getByRole("textbox", { name: "State display name for Yes", exact: true })
     .fill("Working");
   await page.getByRole("button", { name: "Apply state names" }).click();
   await expect(page.getByRole("alert")).toContainText("unique");
-  await analysis(page);
+  await page.getByRole("tab", { name: "Queries", exact: true }).click();
   await expect(
     evidence
       .getByRole("combobox", { name: "Failure", exact: true })
@@ -122,7 +134,11 @@ test("joint heatmaps, tabbed groups, higher-dimensional filters and exports", as
 }) => {
   await load(page);
   await analysis(page);
+  await page
+    .getByRole("tab", { name: "States & training", exact: true })
+    .click();
   await train(page);
+  await page.getByRole("tab", { name: "Queries", exact: true }).click();
   const targets = page.getByRole("group", {
     name: "Targets for active query",
     exact: true,
@@ -135,18 +151,18 @@ test("joint heatmaps, tabbed groups, higher-dimensional filters and exports", as
     .getByRole("textbox", { name: "Query name", exact: true })
     .press("Tab");
   await run(page);
+  await page.getByLabel("Show values").check();
   await expect(page.locator(".joint-heatmap")).toContainText("31.250%");
-  await expect(
-    page.getByRole("button", { name: "Run inference", exact: true }),
-  ).toBeInViewport();
-  await expect(
-    page.getByRole("button", { name: "Train model", exact: true }),
-  ).toBeInViewport();
+  await page
+    .getByRole("button", { name: "Network graph", exact: true })
+    .click();
   await expect(page.locator(".probability-node")).toHaveCount(3);
-  await page.getByRole("button", { name: "＋ Add query", exact: true }).click();
+  await page.getByRole("tab", { name: "Queries", exact: true }).click();
+  await page.getByRole("button", { name: "Add query", exact: true }).click();
   await targets.getByLabel("Material", { exact: true }).check();
   await targets.getByLabel("Failure", { exact: true }).check();
   await run(page);
+  await page.getByRole("button", { name: "Table", exact: true }).click();
   await expect(page.locator(".combination-table tbody tr")).toHaveCount(8);
   const filters = page.getByRole("group", {
     name: "Filter combinations",
@@ -159,6 +175,7 @@ test("joint heatmaps, tabbed groups, higher-dimensional filters and exports", as
   await expect(page.getByText(/Displayed probability mass:/)).toContainText(
     "50.000%",
   );
+  await page.getByText("Export results", { exact: true }).click();
   const jsonDownload = page.waitForEvent("download");
   await page.getByRole("button", { name: "Export JSON", exact: true }).click();
   const json = JSON.parse(
@@ -175,22 +192,36 @@ test("joint heatmaps, tabbed groups, higher-dimensional filters and exports", as
   const csv = await readFile((await (await csvDownload).path())!, "utf8");
   expect(csv.split("\r\n")).toHaveLength(9);
   expect(csv).toContain("stateId");
-  await page.getByRole("tab", { name: "Load × Failure", exact: true }).click();
+  await page.getByRole("button", { name: "Diagram", exact: true }).click();
+  await page
+    .getByRole("combobox", { name: "Columns", exact: true })
+    .selectOption({ label: "Load" });
+  await page
+    .getByRole("combobox", { name: "Failure", exact: true })
+    .selectOption({ label: "Yes" });
+  await expect(
+    page.locator('.joint-heatmap [data-cell="1-0"]'),
+  ).toHaveAttribute("title", String(json.posterior[3]));
+  await page
+    .getByRole("combobox", { name: "Query", exact: true })
+    .selectOption({ label: "Load × Failure" });
+  await page.getByRole("button", { name: "Diagram", exact: true }).click();
   await expect(page.locator(".joint-heatmap")).toBeVisible();
+  await page.getByRole("tab", { name: "Queries", exact: true }).click();
   await page
     .getByRole("group", { name: "Shared evidence", exact: true })
     .getByRole("combobox", { name: "Material", exact: true })
     .selectOption({ label: "Aluminium" });
+  await page.getByRole("tab", { name: "Results", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "Export JSON", exact: true }),
   ).toBeDisabled();
+  await page
+    .getByRole("button", { name: "Network graph", exact: true })
+    .click();
   await expect(page.locator(".probability-graph")).toContainText("Outdated");
   await run(page);
   await expect(page.locator(".joint-heatmap")).toContainText("37.500%");
-  await page
-    .getByRole("slider", { name: "Results area height", exact: true })
-    .fill("75");
-  await expect(page.getByText("75% results / 25% controls")).toBeVisible();
 });
 
 test("v1 projects migrate to query views without changing saved CPTs", async ({
@@ -220,7 +251,7 @@ test("v1 projects migrate to query views without changing saved CPTs", async ({
     buffer: Buffer.from(JSON.stringify(old)),
   });
   await expect(page.getByText("Source not attached")).toBeVisible();
-  await analysis(page);
+  await page.getByRole("tab", { name: "Queries", exact: true }).click();
   await expect(page.locator(".query-tabs [role=tab]")).toHaveCount(3);
   await run(page);
   await expect(page.locator(".probability-node")).toHaveCount(3);

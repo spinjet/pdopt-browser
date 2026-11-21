@@ -6,6 +6,7 @@ import {
   stateLabel,
   evidenceLabel,
   resolveEvidence,
+  type Project,
 } from "./domain";
 import { validateQueries, querySize, QUERY_LIMITS } from "./engine";
 import { csvCell, download } from "./files";
@@ -14,9 +15,7 @@ import EvidenceControl from "./EvidenceControl.vue";
 import SampleExport from "./SampleExport.vue";
 import QueryResults from "./QueryResults.vue";
 const st = useProject(),
-  topPercent = ref(66),
-  method = ref<"mle" | "dirichlet">("dirichlet"),
-  alpha = ref(1),
+  view = ref<"graph" | "distribution">("distribution"),
   activeGroupId = ref("");
 watch(
   () => st.project.queryGroups.map((g) => g.id),
@@ -28,7 +27,18 @@ watch(
 const active = computed(() =>
   st.project.queryGroups.find((g) => g.id === activeGroupId.value),
 );
-const result = computed(() => st.results?.groups[activeGroupId.value]);
+async function run() {
+  if (await st.query()) {
+    view.value = "distribution";
+    st.activeTab = "results";
+    await nextTick();
+    document.getElementById("results-tab")?.focus();
+  }
+}
+function editQuery() {
+  st.activeTab = "queries";
+  document.getElementById("queries-tab")?.focus();
+}
 const resultProject = computed(() =>
   st.current ? st.project : st.resultSnapshot || st.project,
 );
@@ -48,15 +58,36 @@ const totalSize = computed(() =>
     0,
   ),
 );
-const evidenceDescription = computed(
-  () =>
-    Object.entries(resultProject.value.evidence)
-      .map(([id, k]) => {
-        const v = resultProject.value.variables.find((v) => v.id === id)!;
-        return evidenceLabel(v, k);
-      })
-      .join(" · ") || "None (prior distributions)",
+const completedGroups = computed(() =>
+  resultProject.value.queryGroups.filter(
+    (group) => st.results?.groups[group.id],
+  ),
 );
+const completedGroup = computed(
+  () =>
+    completedGroups.value.find((group) => group.id === activeGroupId.value) ??
+    completedGroups.value[0],
+);
+const result = computed(
+  () => completedGroup.value && st.results?.groups[completedGroup.value.id],
+);
+function evidenceTerms(project: Project, evidence: Project["evidence"]) {
+  return Object.entries(evidence)
+    .map(([id, assignment]) => {
+      const variable = project.variables.find((v) => v.id === id)!;
+      return typeof assignment === "number"
+        ? `${variable.label} = ${stateLabel(variable, assignment)}`
+        : evidenceLabel(variable, assignment);
+    })
+    .join(", ");
+}
+function probabilityNotation(project: Project, ids: string[]) {
+  const targets = ids
+    .map((id) => project.variables.find((v) => v.id === id)?.label)
+    .join(", ");
+  const evidence = evidenceTerms(project, project.evidence);
+  return evidence ? `P ( ${targets} | ${evidence} )` : `P ( ${targets} )`;
+}
 function target(id: string, checked: boolean) {
   if (!active.value) return;
   active.value.targetIds = checked
@@ -107,7 +138,7 @@ function queryTabKeys(e: KeyboardEvent) {
   document.getElementById(`query-tab-${groups[i].id}`)?.focus();
 }
 function exportGroup(kind: "json" | "csv") {
-  if (!st.current || !result.value || !active.value) return;
+  if (!st.current || !result.value || !completedGroup.value) return;
   const project = st.project,
     joint = result.value;
   const variables = joint.targetIds.map((id) =>
@@ -116,7 +147,11 @@ function exportGroup(kind: "json" | "csv") {
   const provenance = {
     projectId: project.id,
     revisions: { ...st.revisions },
-    group: { ...active.value },
+    group: {
+      id: completedGroup.value.id,
+      name: completedGroup.value.name,
+      targetIds: completedGroup.value.targetIds,
+    },
     evidence: Object.entries(project.evidence).map(([id, k]) => {
       const v = project.variables.find((v) => v.id === id)!;
       return { variableId: id, assignment: k, label: evidenceLabel(v, k) };
@@ -181,174 +216,46 @@ function exportGroup(kind: "json" | "csv") {
 }
 </script>
 <template>
-  <main class="inference-workspace">
-    <div
-      class="inference-upper"
-      :style="{ flexGrow: topPercent, flexBasis: 0 }"
-    >
-      <ProbabilityGraph />
-      <section class="output-pane" aria-label="Query results">
-        <div class="subpane-heading">
-          <div>
-            <span class="eyebrow">COMBINED INFERENCE</span>
-            <h2>Query views</h2>
-          </div>
-          <button
-            @click="addGroup"
-            :disabled="
-              st.project.queryGroups.length >= 10 ||
-              !st.project.variables.length
-            "
-          >
-            ＋ Add query
-          </button>
-        </div>
-        <div
-          class="query-tabs"
-          role="tablist"
-          aria-label="Query views"
-          @keydown="queryTabKeys"
-        >
-          <button
-            v-for="g in st.project.queryGroups"
-            :key="g.id"
-            :id="`query-tab-${g.id}`"
-            role="tab"
-            :aria-selected="activeGroupId === g.id"
-            :tabindex="activeGroupId === g.id ? 0 : -1"
-            :aria-controls="`query-result-${g.id}`"
-            @click="activeGroupId = g.id"
-          >
-            {{ g.name }}
-          </button>
-        </div>
-        <div
-          v-if="active"
-          :id="`query-result-${active.id}`"
-          role="tabpanel"
-          :aria-labelledby="`query-tab-${active.id}`"
-          class="query-output"
-        >
-          <div class="result-actions">
-            <strong>{{
-              result
-                ? st.current
-                  ? "Current results"
-                  : "Outdated results"
-                : "Not computed"
-            }}</strong
-            ><button
-              @click="exportGroup('json')"
-              :disabled="!st.current || !result"
-            >
-              Export JSON</button
-            ><button
-              @click="exportGroup('csv')"
-              :disabled="!st.current || !result"
-            >
-              Export CSV
-            </button>
-          </div>
-          <p v-if="result" class="tiny muted">
-            Evidence: {{ evidenceDescription }}
-          </p>
-          <SampleExport v-if="active" :group-id="active.id" />
-          <QueryResults
-            v-if="result"
-            :project="resultProject"
-            :result="result"
-            :current="st.current"
-          />
-          <p v-else class="empty-results">
-            Choose targets below, then run inference. Graph nodes show
-            individual marginals; multi-target views show joint probabilities.
-          </p>
-        </div>
-        <p v-else class="empty-results">
-          Add a query view to explore a single target or a combination of
-          targets.
-        </p>
-      </section>
-    </div>
-    <div class="analysis-actionbar">
-      <div class="resize-controls">
-        <label
-          >Results area height
-          <input
-            aria-label="Results area height"
-            type="range"
-            min="45"
-            max="80"
-            v-model.number="topPercent" /></label
-        ><span
-          >{{ topPercent }}% results / {{ 100 - topPercent }}% controls</span
-        >
-      </div>
-      <span class="tiny muted">{{
-        queryError || "Update network probabilities and all query views"
-      }}</span
-      ><button
-        class="primary"
-        @click="st.query()"
-        :disabled="st.busy || !!queryError"
+  <main
+    id="queries-panel"
+    class="query-workspace"
+    role="tabpanel"
+    aria-labelledby="queries-tab"
+    v-show="st.activeTab === 'queries'"
+  >
+    <header class="workspace-heading">
+      <h1>Queries</h1>
+      <button
+        @click="addGroup"
+        :disabled="
+          st.project.queryGroups.length >= QUERY_LIMITS.groups ||
+          !st.project.variables.length
+        "
       >
-        Run inference
+        Add query
+      </button>
+    </header>
+    <div
+      class="query-tabs"
+      role="tablist"
+      aria-label="Query views"
+      @keydown="queryTabKeys"
+    >
+      <button
+        v-for="g in st.project.queryGroups"
+        :key="g.id"
+        :id="`query-tab-${g.id}`"
+        role="tab"
+        :aria-selected="activeGroupId === g.id"
+        :tabindex="activeGroupId === g.id ? 0 : -1"
+        aria-controls="query-configuration"
+        @click="activeGroupId = g.id"
+      >
+        {{ g.name }}
       </button>
     </div>
-    <section
-      class="inference-controls"
-      aria-label="Training and inference controls"
-      :style="{ flexGrow: 100 - topPercent, flexBasis: 0 }"
-    >
-      <fieldset class="training-fieldset">
-        <legend>Training</legend>
-        <div class="training-settings">
-          <p class="tiny muted">
-            Complete records only. Training replaces all
-            {{ st.project.cpts.length }} CPTs atomically.
-          </p>
-          <label class="field"
-            >Estimator<select v-model="method">
-              <option value="dirichlet">Symmetric Dirichlet</option>
-              <option value="mle">Maximum likelihood</option>
-            </select></label
-          ><label v-if="method === 'dirichlet'" class="field"
-            >α per cell<input
-              type="number"
-              min="0.000001"
-              step="0.1"
-              v-model.number="alpha" /></label
-          ><button
-            @click="st.previewTraining()"
-            :disabled="st.busy || !st.dataset || !st.project.variables.length"
-          >
-            Review training data
-          </button>
-          <p v-if="st.trainingPreview?.stamp === st.trainingStamp()">
-            {{ st.trainingPreview.retained }} rows retained ·
-            {{ st.trainingPreview.dropped }} excluded
-          </p>
-          <p v-if="!st.dataset" class="tiny muted">
-            Reattach the source CSV in Build to train. Saved valid CPTs can
-            still be queried.
-          </p>
-          <p v-if="st.cycles.length" class="tiny error">
-            Resolve the cycle in Build before training.
-          </p>
-        </div>
-        <button
-          class="primary"
-          @click="st.train(method, alpha)"
-          :disabled="
-            st.busy ||
-            !st.dataset ||
-            st.trainingPreview?.stamp !== st.trainingStamp() ||
-            !!st.cycles.length
-          "
-        >
-          Train model
-        </button>
-      </fieldset>
+
+    <section class="query-controls" aria-label="Query settings">
       <fieldset>
         <legend>Shared evidence</legend>
         <div class="evidence-list">
@@ -367,7 +274,10 @@ function exportGroup(kind: "json" | "csv") {
           Clear evidence
         </button>
       </fieldset>
-      <fieldset>
+      <fieldset
+        id="query-configuration"
+        :aria-labelledby="active ? `query-tab-${active.id}` : undefined"
+      >
         <legend>Query configuration</legend>
         <template v-if="active"
           ><label class="field"
@@ -411,6 +321,27 @@ function exportGroup(kind: "json" | "csv") {
             {{ querySize(st.project.variables, active).toLocaleString() }}
             combinations in this group · {{ totalSize.toLocaleString() }} total
           </p>
+          <div class="saved-query-evidence">
+            <button
+              @click="st.saveQueryEvidence(active.id)"
+              :disabled="st.busy"
+            >
+              Save evidence with query
+            </button>
+            <button
+              @click="st.applyQueryEvidence(active.id)"
+              :disabled="st.busy || !active.savedEvidence"
+            >
+              Apply saved evidence
+            </button>
+            <p v-if="active.savedEvidence" class="muted">
+              Saved evidence:
+              {{
+                evidenceTerms(st.project, active.savedEvidence) ||
+                "None (prior)"
+              }}
+            </p>
+          </div>
           <button class="danger" @click="st.removeGroup(active.id)">
             Remove query
           </button></template
@@ -420,8 +351,113 @@ function exportGroup(kind: "json" | "csv") {
           {{ QUERY_LIMITS.total.toLocaleString() }} total,
           {{ QUERY_LIMITS.groups }} groups.
         </p>
-        <p v-if="queryError" class="query-blocker">{{ queryError }}</p>
       </fieldset>
+    </section>
+    <div class="workspace-heading query-run">
+      <div>
+        <strong>{{ active?.name || "Choose a query" }}</strong>
+        <p v-if="active?.targetIds.length" class="query-notation">
+          {{ probabilityNotation(st.project, active.targetIds) }}
+        </p>
+        <p v-else>
+          Evidence:
+          {{ evidenceTerms(st.project, st.project.evidence) || "None (prior)" }}
+        </p>
+        <p v-if="queryError" class="query-blocker">{{ queryError }}</p>
+      </div>
+      <button class="primary" @click="run" :disabled="st.busy || !!queryError">
+        Run query
+      </button>
+    </div>
+  </main>
+  <main
+    id="results-panel"
+    class="results-workspace"
+    role="tabpanel"
+    aria-labelledby="results-tab"
+    v-show="st.activeTab === 'results'"
+  >
+    <header class="workspace-heading results-heading">
+      <div>
+        <div class="view-switch" role="group" aria-label="Results view">
+          <button :aria-pressed="view === 'graph'" @click="view = 'graph'">
+            Network graph
+          </button>
+          <button
+            :aria-pressed="view === 'distribution'"
+            @click="view = 'distribution'"
+          >
+            Query results
+          </button>
+        </div>
+        <template v-if="result && completedGroup">
+          <p>
+            <strong>{{ completedGroup.name }}</strong>
+          </p>
+          <p class="query-notation">
+            {{ probabilityNotation(resultProject, result.targetIds) }}
+          </p>
+        </template>
+        <p v-else-if="st.results">
+          Evidence:
+          {{
+            evidenceTerms(resultProject, resultProject.evidence) ||
+            "None (prior)"
+          }}
+        </p>
+      </div>
+      <button @click="editQuery">Edit query</button>
+    </header>
+
+    <ProbabilityGraph
+      :visible="st.activeTab === 'results' && view === 'graph'"
+      v-show="view === 'graph'"
+    />
+    <section
+      v-show="view === 'distribution'"
+      class="results-content"
+      aria-label="Query results"
+    >
+      <template v-if="result && completedGroup">
+        <div class="results-toolbar">
+          <label v-if="completedGroups.length > 1">
+            Query
+            <select
+              :value="completedGroup.id"
+              @change="
+                activeGroupId = ($event.target as HTMLSelectElement).value
+              "
+            >
+              <option
+                v-for="group in completedGroups"
+                :key="group.id"
+                :value="group.id"
+              >
+                {{ group.name }}
+              </option>
+            </select>
+          </label>
+          <span v-if="st.current" class="tiny muted">Current results</span>
+          <details class="result-exports">
+            <summary>Export results</summary>
+            <div class="result-actions">
+              <button @click="exportGroup('json')" :disabled="!st.current">
+                Export JSON
+              </button>
+              <button @click="exportGroup('csv')" :disabled="!st.current">
+                Export CSV
+              </button>
+            </div>
+            <SampleExport :group-id="completedGroup.id" />
+          </details>
+        </div>
+        <QueryResults
+          :project="resultProject"
+          :result="result"
+          :current="st.current"
+        />
+      </template>
+      <p v-else class="empty-results">Run a query to see its results here.</p>
     </section>
   </main>
 </template>

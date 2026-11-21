@@ -1,36 +1,7 @@
 import { instance } from "@viz-js/viz";
 import { stateLabel, evidenceLabel, type Project } from "./domain";
-export type GraphDirection = "auto" | "TB" | "BT" | "LR" | "RL";
-/** Graphviz has one hierarchy axis; mixed sides vote for its dominant flow. */
-export function graphDirection(
-  p: Project,
-  requested: GraphDirection = "auto",
-): Exclude<GraphDirection, "auto"> {
-  if (requested !== "auto") return requested;
-  if (!p.edges.length) return "LR";
-  const votes = { TB: 0, BT: 0, LR: 0, RL: 0 };
-  const outgoing = {
-    bottom: "TB",
-    top: "BT",
-    right: "LR",
-    left: "RL",
-  } as const;
-  const incoming = {
-    top: "TB",
-    bottom: "BT",
-    left: "LR",
-    right: "RL",
-  } as const;
-  for (const e of p.edges) {
-    votes[outgoing[e.sourceHandle || "right"]]++;
-    votes[incoming[e.targetHandle || "left"]]++;
-  }
-  // A stable vertical-first tie break honours top/bottom connections in mixed drafts.
-  return (["TB", "BT", "LR", "RL"] as const).reduce(
-    (best, direction) => (votes[direction] > votes[best] ? direction : best),
-    "TB",
-  );
-}
+import { graphDirection, type GraphDirection } from "./graph-direction";
+export { graphDirection, type GraphDirection } from "./graph-direction";
 let renderer: ReturnType<typeof instance> | undefined;
 export function graphDot(
   p: Project,

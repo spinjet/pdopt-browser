@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { openDiscreteFixture } from "./fixtures";
 const base = process.env.TEST_PATH || "/";
 for (const operation of ["cancel", "stale"] as const)
   test(`real WASM job: ${operation} preserves project and supports retry`, async ({
@@ -6,11 +7,9 @@ for (const operation of ["cancel", "stale"] as const)
   }) => {
     page.on("dialog", (d) => d.accept());
     await page.goto(base);
+    await openDiscreteFixture(page);
     await page
-      .getByRole("button", { name: "Load engineering example" })
-      .click();
-    await page
-      .getByRole("tab", { name: "Train & Inference", exact: true })
+      .getByRole("tab", { name: "States & training", exact: true })
       .click();
     await expect(page.getByText("8 rows retained · 0 excluded")).toBeVisible();
     await page
@@ -19,6 +18,7 @@ for (const operation of ["cancel", "stale"] as const)
     await expect(
       page.getByRole("status").filter({ hasText: "Trained 3 CPTs" }),
     ).toBeVisible();
+    await page.getByRole("tab", { name: "Queries", exact: true }).click();
     let release!: () => void;
     const barrier = new Promise<void>((r) => (release = r));
     let started!: () => void;
@@ -28,9 +28,7 @@ for (const operation of ["cancel", "stale"] as const)
       await barrier;
       await route.continue().catch(() => {});
     });
-    await page
-      .getByRole("button", { name: "Run inference", exact: true })
-      .click();
+    await page.getByRole("button", { name: "Run query", exact: true }).click();
     await requested;
     if (operation === "cancel")
       await page.getByRole("button", { name: "Cancel computation" }).click();
@@ -44,40 +42,35 @@ for (const operation of ["cancel", "stale"] as const)
       operation === "cancel" ? "cancelled" : "outdated",
     );
     await page.unroute("**/libagrum.wasm");
-    await page
-      .getByRole("button", { name: "Run inference", exact: true })
-      .click();
+    await page.getByRole("button", { name: "Run query", exact: true }).click();
     await expect(
       page.getByText("Current results", { exact: true }),
     ).toBeVisible();
-    await expect(page.locator("#inference-panel .network-node")).toHaveCount(3);
+    await expect(page.locator("#results-panel .network-node")).toHaveCount(3);
   });
 
 test("missing WASM preserves work and retry loads a fresh engine", async ({
   page,
 }) => {
   await page.goto(base);
-  await page.getByRole("button", { name: "Load engineering example" }).click();
+  await openDiscreteFixture(page);
   await page
-    .getByRole("tab", { name: "Train & Inference", exact: true })
+    .getByRole("tab", { name: "States & training", exact: true })
     .click();
   await expect(page.getByText("8 rows retained · 0 excluded")).toBeVisible();
   await page.getByRole("button", { name: "Train model", exact: true }).click();
   await expect(
     page.getByRole("status").filter({ hasText: "Trained 3 CPTs" }),
   ).toBeVisible();
+  await page.getByRole("tab", { name: "Queries", exact: true }).click();
   await page.route("**/libagrum.wasm", (route) => route.abort());
-  await page
-    .getByRole("button", { name: "Run inference", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Run query", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText(
     "Could not initialize WASM",
   );
-  await expect(page.locator("#inference-panel .network-node")).toHaveCount(3);
+  await expect(page.locator("#results-panel .network-node")).toHaveCount(3);
   await page.unroute("**/libagrum.wasm");
-  await page
-    .getByRole("button", { name: "Run inference", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Run query", exact: true }).click();
   await expect(
     page.getByText("Current results", { exact: true }),
   ).toBeVisible();

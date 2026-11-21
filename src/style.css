@@ -302,11 +302,18 @@ th small {
 }
 .canvas-tools {
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 5px;
 }
 .canvas-tools button {
   font-size: 11px;
+  min-height: 34px;
+  margin: 0;
   padding: 7px 10px;
+}
+.canvas-help {
+  margin: 4px 25px 12px;
 }
 .graph-wrap {
   min-height: 400px;
@@ -476,10 +483,118 @@ td {
   font-variant-numeric: tabular-nums;
 }
 .missing-settings,
-.preview,
 .cpt {
   margin: 18px 0;
   font-size: 12px;
+}
+.raw-data-button {
+  margin-top: 16px;
+}
+.workspace-dialog {
+  width: calc(100vw - 32px);
+  max-width: none;
+  max-height: calc(100dvh - 32px);
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid #ccd6dc;
+  border-radius: 10px;
+  background: white;
+  color: inherit;
+}
+.workspace-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+.workspace-dialog::backdrop {
+  background: #172b3b80;
+}
+.workspace-dialog-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid #dce3e7;
+}
+.workspace-dialog-heading p {
+  margin: 4px 0 0;
+  font-size: 0.875rem;
+}
+.raw-data-table {
+  overflow: auto;
+  min-height: 0;
+  overscroll-behavior: contain;
+  overflow-anchor: none;
+}
+.raw-data-table table {
+  width: calc(var(--raw-columns) * 10rem);
+  min-width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.raw-data-table :is(th, td) {
+  height: var(--raw-row-height);
+  padding: 0 10px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 0.875rem;
+}
+.raw-data-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f2f7f7;
+}
+.raw-data-even {
+  background: #f8fafb;
+}
+.raw-data-table .raw-data-spacer td {
+  padding: 0;
+  border: 0;
+}
+.raw-data-range {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 0.875rem;
+}
+.raw-data-range select {
+  width: auto;
+}
+.cantilever-tutorial {
+  width: min(48rem, calc(100vw - 32px));
+}
+.tutorial-content {
+  min-height: 0;
+  overflow: auto;
+  padding: 0 20px 16px;
+  font-size: 1rem;
+  line-height: 1.55;
+}
+.tutorial-content h3 {
+  margin-top: 18px;
+}
+.tutorial-content li + li {
+  margin-top: 6px;
+}
+.tutorial-figure {
+  margin: 16px 0;
+}
+.tutorial-figure img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.tutorial-figure figcaption {
+  margin-top: 6px;
+  font-size: 0.875rem;
+  color: #526a78;
+}
+.tutorial-materials :is(th, td) {
+  font-size: 0.875rem;
 }
 .banner {
   display: flex;
@@ -677,6 +792,9 @@ footer {
     padding: 18px;
     flex-wrap: wrap;
   }
+  .canvas-help {
+    margin-inline: 18px;
+  }
   .project-name {
     max-width: 180px;
   }
@@ -794,20 +912,6 @@ footer {
   font-size: 11px;
   margin: 10px 0;
 }
-.inference-workspace {
-  display: flex;
-  flex-direction: column;
-  height: calc(100dvh - 200px);
-  min-height: 680px;
-  gap: 0;
-}
-.inference-upper {
-  display: grid;
-  grid-template-columns: minmax(300px, 1fr) minmax(340px, 1fr);
-  min-height: 310px;
-  overflow: hidden;
-  border-bottom: 1px solid #dce3e7;
-}
 .probability-graph {
   display: flex;
   flex-direction: column;
@@ -888,11 +992,6 @@ footer {
   padding: 6px 18px;
   margin: 0;
 }
-.output-pane {
-  background: #fff;
-  overflow: auto;
-  min-width: 0;
-}
 .query-tabs {
   display: flex;
   overflow: auto;
@@ -908,9 +1007,6 @@ footer {
   background: #e6f2ef;
   border-color: #76aaa3;
   color: #145e5b;
-}
-.query-output {
-  padding: 16px;
 }
 .result-actions {
   display: flex;
@@ -941,20 +1037,6 @@ footer {
 .joint-table-scroll {
   overflow: auto;
   max-height: 330px;
-}
-.joint-heatmap {
-  min-width: 100%;
-  width: max-content;
-}
-.joint-heatmap td {
-  text-align: center;
-  min-width: 85px;
-  border: 3px solid #fff;
-  font-weight: 500;
-}
-.joint-heatmap th {
-  max-width: 180px;
-  white-space: normal;
 }
 .joint-heatmap caption,
 .combination-table caption {
@@ -1008,58 +1090,6 @@ footer {
 .marginal-table td {
   width: 32%;
 }
-.resize-controls {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 20px;
-  background: #eef3f4;
-  padding: 5px 15px;
-  font-size: 10px;
-  border-bottom: 1px solid #d6e2e3;
-}
-.resize-controls label {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.resize-controls input {
-  width: 130px;
-  accent-color: #146a69;
-  border: none;
-  padding: 0;
-}
-.inference-controls {
-  display: grid;
-  grid-template-columns: 1fr 1.4fr 1.3fr;
-  gap: 14px;
-  overflow: auto;
-  padding: 14px 20px;
-  background: #f1f6f5;
-  min-height: 220px;
-}
-.inference-controls > fieldset {
-  overflow: auto;
-  margin: 0;
-  min-height: 0;
-}
-.inference-controls .field {
-  margin: 8px 0;
-  font-size: 11px;
-}
-.inference-controls p {
-  font-size: 11px;
-  margin: 8px 0;
-}
-.inference-controls button {
-  font-size: 11px;
-  margin: 3px 3px 3px 0;
-  padding: 7px 9px;
-}
-.inference-controls .evidence-list {
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 0 10px;
-}
 .target-selector {
   padding: 8px;
   border: 1px solid #e1e8ea;
@@ -1076,69 +1106,21 @@ footer {
   padding: 2px 7px;
   margin-left: 5px;
 }
-.inference-controls .numeric-input input {
-  width: 100%;
-  min-width: 0;
-}
 .query-result.stale-results {
   padding: 10px;
-}
-.output-pane > .empty-results {
-  padding: 20px;
 }
 .brand-mark {
   letter-spacing: -1px;
 }
-@media (max-width: 950px) {
-  .inference-controls {
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 8px;
-    padding: 10px;
-  }
-  .inference-upper {
-    grid-template-columns: minmax(260px, 1fr) minmax(320px, 1fr);
-  }
-}
 @media (max-width: 800px) {
-  .inference-workspace {
-    height: auto;
-    min-height: 0;
-  }
-  .inference-upper {
-    display: flex;
-    flex-direction: column;
-    overflow: visible;
-    flex-basis: auto !important;
-    min-height: 0;
-  }
   .probability-graph {
     height: 460px;
     flex: none;
     border-right: none;
     border-bottom: 1px solid #dce3e7;
   }
-  .output-pane {
-    max-height: 650px;
-    min-height: 300px;
-  }
-  .inference-controls {
-    display: flex;
-    flex-direction: column;
-    overflow: visible;
-    flex-basis: auto !important;
-  }
-  .inference-controls > fieldset {
-    overflow: visible;
-    min-height: 0;
-  }
-  .resize-controls {
-    display: none;
-  }
   .workspace-tabs {
     padding: 10px 15px;
-  }
-  .query-output {
-    padding: 12px;
   }
 }
 .probability-node,
@@ -1158,63 +1140,6 @@ footer {
 .node-probability {
   margin: 6px 0;
 }
-.analysis-actionbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 7px 20px;
-  background: #eef3f4;
-  border-bottom: 1px solid #d6e2e3;
-  flex-shrink: 0;
-}
-.analysis-actionbar .resize-controls {
-  padding: 0;
-  border: none;
-  flex-shrink: 0;
-}
-.analysis-actionbar > .tiny {
-  flex: 1;
-  text-align: right;
-}
-.analysis-actionbar > button {
-  padding: 7px 14px;
-  flex-shrink: 0;
-}
-.inference-controls .training-fieldset {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-.training-settings {
-  overflow: auto;
-  min-height: 0;
-  flex: 1;
-}
-.training-fieldset > button {
-  flex-shrink: 0;
-  margin-top: 8px;
-  background: #146a69;
-}
-@media (max-width: 1000px) {
-  .analysis-actionbar {
-    flex-wrap: wrap;
-  }
-  .analysis-actionbar > .tiny {
-    font-size: 10px;
-  }
-}
-@media (max-width: 800px) {
-  .analysis-actionbar {
-    padding: 10px 14px;
-  }
-  .inference-controls .training-fieldset {
-    overflow: visible;
-  }
-  .training-settings {
-    overflow: visible;
-  }
-}
 .target-order button {
   min-width: 27px;
   min-height: 27px;
@@ -1223,31 +1148,12 @@ footer {
   max-height: 140px;
 }
 @media (min-width: 801px) and (min-height: 720px) {
-  .app-shell:has(#inference-tab[aria-selected="true"]) {
-    height: 100dvh;
-    overflow: hidden;
-  }
   .app-shell > .topbar,
   .app-shell > .statusbar,
   .app-shell > .workspace-tabs,
   .app-shell > .banner,
   .app-shell > footer {
     flex-shrink: 0;
-  }
-  #inference-panel {
-    flex: 1;
-    min-height: 0;
-    overflow: hidden;
-  }
-  .inference-workspace {
-    height: 100%;
-    min-height: 0;
-  }
-  .inference-upper {
-    min-height: 210px;
-  }
-  .inference-controls {
-    min-height: 150px;
   }
   .probability-graph .graph-wrap {
     min-height: 120px;
@@ -1294,4 +1200,211 @@ footer {
 }
 .evidence-control select[multiple] {
   min-height: 90px;
+}
+
+.workspace-tabs {
+  overflow-x: auto;
+}
+.workspace-tabs button {
+  flex-shrink: 0;
+}
+.network-workspace {
+  grid-template-columns: minmax(220px, 265px) minmax(0, 1fr);
+}
+.manual-node,
+.example-option,
+.training-options {
+  margin-top: 16px;
+}
+.example-option {
+  display: grid;
+  gap: 8px;
+}
+.states-workspace,
+.query-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(275px, 0.6fr);
+  align-items: start;
+  gap: 20px;
+  padding: 20px;
+}
+.states-workspace .panel,
+.query-controls > fieldset {
+  min-width: 0;
+  margin: 0;
+  border: 1px solid #dce3e7;
+  border-radius: 8px;
+  background: white;
+}
+.states-workspace .panel {
+  max-height: none;
+}
+.states-workspace .field,
+.query-controls .field {
+  font-size: 0.875rem;
+}
+.query-controls .evidence-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(205px, 100%), 1fr));
+  gap: 0 12px;
+}
+.query-controls > fieldset {
+  padding: 16px;
+}
+.workspace-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 20px;
+  background: white;
+  border-bottom: 1px solid #dce3e7;
+}
+.workspace-heading h1,
+.workspace-heading p {
+  margin: 0;
+}
+.workspace-heading p {
+  font-size: 0.875rem;
+  margin-top: 5px;
+}
+.query-run {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  border-top: 1px solid #dce3e7;
+}
+.query-notation,
+.saved-query-evidence p {
+  overflow-wrap: anywhere;
+}
+.saved-query-evidence {
+  margin: 12px 0;
+}
+.query-run > button,
+.results-heading > button {
+  flex-shrink: 0;
+}
+.query-workspace .query-tabs {
+  padding-top: 10px;
+  background: white;
+}
+.results-workspace {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: min(620px, calc(100dvh - 140px));
+  background: white;
+}
+.results-workspace .probability-graph {
+  flex: 1;
+  min-height: 440px;
+  border-right: 0;
+}
+.results-workspace .graph-wrap {
+  flex: 1;
+}
+.results-content {
+  padding: 10px 20px 16px;
+  min-width: 0;
+}
+.results-toolbar,
+.heatmap-toolbar,
+.view-switch,
+.heatmap-scale {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.results-toolbar {
+  margin-bottom: 8px;
+}
+.result-exports {
+  margin-left: auto;
+}
+.result-exports[open] {
+  flex-basis: 100%;
+}
+.view-switch button[aria-pressed="true"] {
+  background: #e6f2ef;
+  border-color: #76aaa3;
+  color: #145e5b;
+  font-weight: 600;
+}
+.heatmap-toolbar {
+  margin-top: 6px;
+  justify-content: flex-start;
+}
+.heatmap-toolbar label,
+.heatmap-scale,
+.heatmap-detail {
+  font-size: 0.875rem;
+}
+.heatmap-scale {
+  margin-left: auto;
+}
+.heatmap-gradient {
+  display: inline-block;
+  width: 95px;
+  height: 10px;
+  border-radius: 3px;
+  background: linear-gradient(to right, #eff5f4, #357f7e);
+}
+.heatmap-scroll {
+  max-height: none;
+}
+.joint-heatmap {
+  table-layout: fixed;
+  width: 100%;
+  min-width: calc(9rem + var(--heatmap-columns) * 3.65rem);
+}
+.joint-heatmap :is(th, td) {
+  padding: 0;
+  min-width: 0;
+  border: 1px solid white;
+}
+.joint-heatmap th {
+  padding: 3px 5px;
+  line-height: 1.2;
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
+.joint-heatmap th:first-child {
+  width: 9rem;
+}
+.joint-heatmap th span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  white-space: normal;
+}
+.joint-heatmap td button {
+  width: 100%;
+  min-height: 26px;
+  display: block;
+  border: 0;
+  border-radius: 2px;
+  padding: 2px;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+.joint-heatmap td button:is(:focus-visible, [aria-pressed="true"]) {
+  outline: 2px solid #182f40;
+  outline-offset: -2px;
+}
+.heatmap-detail {
+  margin: 6px 0 0;
+}
+@media (max-width: 760px) {
+  .network-workspace,
+  .states-workspace,
+  .query-controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .workspace-heading,
+  .results-content {
+    padding-inline: 12px;
+  }
 }

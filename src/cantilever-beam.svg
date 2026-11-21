@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 210" width="680" height="210">
+  <title>Cantilever beam and rectangular cross-section</title>
+  <desc>A beam fixed at its left end is loaded downwards at its free right end. The span is L. The section has width b and vertical depth h.</desc>
+  <defs>
+    <pattern id="wall" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <path d="M 0 0 V 7" stroke="#8299a6" stroke-width="2"/>
+    </pattern>
+    <marker id="force" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 Z" fill="#a83542"/>
+    </marker>
+    <marker id="dimension" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 Z" fill="#526a78"/>
+    </marker>
+  </defs>
+  <rect width="680" height="210" rx="10" fill="#f4f8fa"/>
+  <path d="M 480 22 V 188" stroke="#cddce3"/>
+  <g fill="#d5eeea" stroke="#146a69" stroke-width="2">
+    <rect x="91" y="87" width="334" height="27"/>
+    <rect x="535" y="68" width="70" height="57"/>
+  </g>
+  <path d="M 72 64 H 91 V 137 H 72 Z" fill="url(#wall)"/>
+  <path d="M 91 64 V 137" stroke="#213747" stroke-width="3"/>
+  <path d="M 425 50 V 86" stroke="#a83542" stroke-width="3" marker-end="url(#force)"/>
+  <g stroke="#8299a6" stroke-width="1">
+    <path d="M 91 143 V 165 M 425 120 V 165"/>
+    <path d="M 535 131 V 159 M 605 131 V 159 M 611 68 H 640 M 611 125 H 640"/>
+  </g>
+  <g stroke="#526a78" stroke-width="1.5" marker-start="url(#dimension)" marker-end="url(#dimension)">
+    <path d="M 92 156 H 424"/>
+    <path d="M 536 152 H 604"/>
+    <path d="M 631 69 V 124"/>
+  </g>
+  <g fill="#213747" font-family="system-ui, sans-serif" font-size="16" text-anchor="middle">
+    <text x="91" y="50" font-weight="600">Fixed end</text>
+    <text x="415" y="39" fill="#a83542" font-weight="600">Tip load F</text>
+    <text x="258" y="181">Span L</text>
+    <text x="572" y="43" font-weight="600">Cross-section</text>
+    <text x="570" y="176">Width b</text>
+    <text x="651" y="102">h</text>
+  </g>
+</svg>

@@ -8,6 +8,12 @@ import BuildWorkspace from "./BuildWorkspace.vue";
 import InferenceWorkspace from "./InferenceWorkspace.vue";
 const st = useProject(),
   openInput = ref<HTMLInputElement>();
+const tabs = [
+  { id: "network", label: "Network" },
+  { id: "states", label: "States & training" },
+  { id: "queries", label: "Queries" },
+  { id: "results", label: "Results" },
+] as const;
 async function open(file: File | undefined) {
   if (!file) return;
   if (file.size > LIMITS.fileBytes) {
@@ -39,14 +45,16 @@ function save() {
 function tabKeys(e: KeyboardEvent) {
   if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) {
     e.preventDefault();
+    const index = tabs.findIndex((tab) => tab.id === st.activeTab);
+    const offset = e.key === "ArrowLeft" ? -1 : 1;
     st.activeTab =
-      e.key === "Home"
-        ? "build"
-        : e.key === "End"
-          ? "inference"
-          : st.activeTab === "build"
-            ? "inference"
-            : "build";
+      tabs[
+        e.key === "Home"
+          ? 0
+          : e.key === "End"
+            ? tabs.length - 1
+            : (index + offset + tabs.length) % tabs.length
+      ].id;
     document.getElementById(`${st.activeTab}-tab`)?.focus();
   }
 }
@@ -65,7 +73,8 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
       <div class="brand">
         <span class="brand-mark">BN</span>
         <div>
-          <strong>PDOPT</strong><small>Probabilistic Design and Optimisation</small>
+          <strong>PDOPT</strong
+          ><small>Probabilistic Design and Optimisation</small>
         </div>
       </div>
       <div class="project-name">
@@ -98,23 +107,16 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
       @keydown="tabKeys"
     >
       <button
-        id="build-tab"
+        v-for="tab in tabs"
+        :id="tab.id + '-tab'"
+        :key="tab.id"
         role="tab"
-        aria-controls="build-panel"
-        :aria-selected="st.activeTab === 'build'"
-        :tabindex="st.activeTab === 'build' ? 0 : -1"
-        @click="st.activeTab = 'build'"
+        :aria-controls="tab.id + '-panel'"
+        :aria-selected="st.activeTab === tab.id"
+        :tabindex="st.activeTab === tab.id ? 0 : -1"
+        @click="st.activeTab = tab.id"
       >
-        Build</button
-      ><button
-        id="inference-tab"
-        role="tab"
-        aria-controls="inference-panel"
-        :aria-selected="st.activeTab === 'inference'"
-        :tabindex="st.activeTab === 'inference' ? 0 : -1"
-        @click="st.activeTab = 'inference'"
-      >
-        Train & Inference
+        {{ tab.label }}
       </button>
     </div>
     <div v-if="st.error" class="banner error" role="alert">
@@ -127,26 +129,10 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
     <div v-if="st.busy" class="banner working" role="status">
       Computing locally…<button @click="st.cancel()">Cancel computation</button>
     </div>
-    <section
-      id="build-panel"
-      role="tabpanel"
-      aria-labelledby="build-tab"
-      v-show="st.activeTab === 'build'"
-    >
-      <BuildWorkspace />
-    </section>
-    <section
-      id="inference-panel"
-      role="tabpanel"
-      aria-labelledby="inference-tab"
-      v-show="st.activeTab === 'inference'"
-    >
-      <InferenceWorkspace />
-    </section>
+    <BuildWorkspace />
+    <InferenceWorkspace />
     <footer>
-      PDOPT · Browser version<span
-        >(c) Andrea Spinelli 2023-2026</span
-      >
+      PDOPT · Browser version<span>(c) Andrea Spinelli 2023-2026</span>
     </footer>
     <input
       data-testid="project-file"

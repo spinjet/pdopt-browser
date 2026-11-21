@@ -47,12 +47,6 @@ export const cptSchema = z.object({
   datasetHash: z.string(),
   trainedAt: z.string(),
 });
-export const queryGroupSchema = z.object({
-  id: z.string().min(1),
-  name: z.string().trim().min(1).max(100),
-  targetIds: z.array(z.string()).max(100),
-});
-export type QueryGroup = z.infer<typeof queryGroupSchema>;
 export const evidenceValueSchema = z.union([
   z.number().int().nonnegative(),
   z.object({
@@ -66,6 +60,14 @@ export const evidenceValueSchema = z.union([
   }),
 ]);
 export type EvidenceValue = z.infer<typeof evidenceValueSchema>;
+export const evidenceSchema = z.record(z.string(), evidenceValueSchema);
+export const queryGroupSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().trim().min(1).max(100),
+  targetIds: z.array(z.string()).max(100),
+  savedEvidence: evidenceSchema.optional(),
+});
+export type QueryGroup = z.infer<typeof queryGroupSchema>;
 export const projectSchema = z.object({
   schemaVersion: z.literal(3),
   id: z.string(),
@@ -83,7 +85,7 @@ export const projectSchema = z.object({
     )
     .max(1000),
   cpts: z.array(cptSchema).max(100),
-  evidence: z.record(z.string(), evidenceValueSchema),
+  evidence: evidenceSchema,
   queryGroups: z.array(queryGroupSchema).max(100),
   dataset: z
     .object({
@@ -273,6 +275,13 @@ export function validateProject(input: unknown): Project {
       throw new Error("Invalid discretisation states.");
     if (v.binning?.cuts.some((x, i, a) => i > 0 && x <= a[i - 1]))
       throw new Error("Bin cuts must increase strictly.");
+    if (v.columnId === "") {
+      if (v.representation !== "categorical" || v.parameterMode !== "uniform")
+        throw new Error(
+          "Manual variables must have categorical states and a uniform CPT.",
+        );
+      continue;
+    }
     if (p.dataset && Number(v.columnId.slice(1)) >= p.dataset.headers.length)
       throw new Error(
         "Source column does not exist in the dataset descriptor.",
@@ -331,8 +340,17 @@ export function validateProject(input: unknown): Project {
         throw new Error("CPT probabilities must sum to 1.");
     }
   }
-  for (const [id, e] of Object.entries(p.evidence)) {
-    const v = p.variables.find((v) => v.id === id);
+  validateEvidence(p.variables, p.evidence);
+  for (const group of p.queryGroups)
+    if (group.savedEvidence) validateEvidence(p.variables, group.savedEvidence);
+  return p;
+}
+function validateEvidence(
+  variables: Variable[],
+  evidence: Project["evidence"],
+) {
+  for (const [id, e] of Object.entries(evidence)) {
+    const v = variables.find((v) => v.id === id);
     if (!v) throw new Error("Unknown evidence variable.");
     if (typeof e === "number" && e >= v.states.length)
       throw new Error("Unknown evidence state.");
@@ -350,7 +368,6 @@ export function validateProject(input: unknown): Project {
     )
       throw new Error("Numeric evidence requires a numeric variable.");
   }
-  return p;
 }
 export function inferenceReady(p: Project) {
   if (!p.variables.length)

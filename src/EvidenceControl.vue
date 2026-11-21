@@ -127,10 +127,9 @@ function subset(e: Event) {
         >
           Add exact cut &amp; retrain
         </button>
-        <p class="tiny muted">
+        <p v-if="variable.binning" class="tiny muted">
           A threshold must align with an exact bin boundary. Adding a cut
-          requires retraining. Strict comparisons use the next representable
-          number.
+          requires retraining.
         </p></template
       >
     </details>

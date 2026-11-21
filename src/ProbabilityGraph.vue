@@ -1,16 +1,23 @@
 <script setup lang="ts">
 import { computed, ref, watch, nextTick } from "vue";
-import { VueFlow, Handle, Position, useVueFlow } from "@vue-flow/core";
+import {
+  VueFlow,
+  Handle,
+  MarkerType,
+  Position,
+  useVueFlow,
+} from "@vue-flow/core";
 import { useProject } from "./store";
 import { stateLabel } from "./domain";
+const props = defineProps<{ visible: boolean }>();
 const st = useProject(),
   flow = useVueFlow({ id: "inference" }),
   expanded = ref<Record<string, boolean>>({});
+const graphProject = computed(() =>
+  st.current ? st.project : st.resultSnapshot || st.project,
+);
 const nodes = computed(() =>
-  st.project.variables.map((v) => {
-    const source = st.current
-      ? v
-      : st.resultSnapshot?.variables.find((old) => old.id === v.id);
+  graphProject.value.variables.map((v) => {
     const probabilities = st.results?.posterior[v.id];
     return {
       id: v.id,
@@ -22,23 +29,22 @@ const nodes = computed(() =>
       data: {
         label: v.label,
         mode: v.parameterMode,
-        observed: st.project.evidence[v.id] !== undefined,
+        observed: graphProject.value.evidence[v.id] !== undefined,
         probabilities,
-        rows:
-          source?.states.map((_, i) => ({
-            label: stateLabel(source, i),
-            probability: probabilities?.[i],
-          })) || [],
+        rows: v.states.map((_, i) => ({
+          label: stateLabel(v, i),
+          probability: probabilities?.[i],
+        })),
       },
     };
   }),
 );
 const edges = computed(() =>
-  st.project.edges.map((e) => ({
+  graphProject.value.edges.map((e) => ({
     ...e,
     sourceHandle: e.sourceHandle || "right",
     targetHandle: e.targetHandle || "left",
-    markerEnd: "arrowclosed",
+    markerEnd: { type: MarkerType.ArrowClosed, color: "#718599" },
     style: { stroke: "#718599", strokeWidth: 2 },
   })),
 );
@@ -52,9 +58,13 @@ watch(
   },
 );
 watch(
-  [() => st.activeTab, () => st.resultStamp, () => st.project.variables.length],
+  [
+    () => props.visible,
+    () => st.resultStamp,
+    () => graphProject.value.variables.length,
+  ],
   async () => {
-    if (st.activeTab !== "inference" || !st.project.variables.length) return;
+    if (!props.visible || !graphProject.value.variables.length) return;
     if (!initialFit || (!resultFit && st.results)) {
       initialFit = true;
       if (st.results) resultFit = true;
@@ -70,7 +80,6 @@ watch(
   <section class="probability-graph" aria-label="Inference network">
     <div class="subpane-heading">
       <div>
-        <span class="eyebrow">NETWORK POSTERIORS</span>
         <h2>Probability graph</h2>
       </div>
       <button @click="flow.fitView({ padding: 0.2 })">Fit view</button>
@@ -148,12 +157,12 @@ watch(
           </div>
         </template>
       </VueFlow>
-      <p v-if="!st.project.variables.length" class="empty-canvas">
-        Add variables in Build to see the network here.
+      <p v-if="!graphProject.variables.length" class="empty-canvas">
+        Add variables in Network to see the network here.
       </p>
     </div>
     <p class="tiny muted graph-note">
-      Read-only network · edit structure and positions in Build.
+      Read-only network · edit structure and positions in Network.
     </p>
   </section>
 </template>

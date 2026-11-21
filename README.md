@@ -13,30 +13,36 @@ npm run dev
 
 Open the address Vite prints. Hosted users need only a modern browser, not Node.js or Python. Use HTTPS outside localhost; direct `file://` opening is unsupported.
 
-## Build workspace
+## Network and States & training
 
-The three panes contain dataset controls, the editable network, and variable settings.
-
-1. Import UTF-8 CSV or click **Load engineering example**. Delimiters, quoted fields and UTF-8 BOMs are supported; headers must be unique and nonblank.
-2. Add columns as variables. Numeric columns default to three equal-width bins. The inspector offers categorical, finite numeric and discretised representations, with manual, equal-width or quantile cuts.
-3. Edit categorical **state display names**, keeping original source values visible. Click **Apply state names** to commit nonblank, unique aliases. This does not change encoding, evidence or CPTs.
-4. Set **Decimal places** per numeric variable (0–12, default 2). Thresholds remain full precision; **Exact thresholds** shows stored cuts. Warnings identify indistinguishable rounded boundaries. Exact cuts enter the upper bin.
-5. Connect nodes through graph handles or **Connections · keyboard controls**. Cyclic drafts can be saved, but cannot train or run inference.
-6. Choose **Learn from data** or **Force uniform CPT** per variable. Changing the mode requires training again.
+1. Import UTF-8 CSV or click **Load cantilever beam example**. Delimiters, quoted fields and UTF-8 BOMs are supported; headers must be unique and nonblank. **Preview raw data** opens a wide dialog where you can scroll through the dataset with the headers pinned.
+2. Add columns as variables in **Network**, or add a manual categorical node with a uniform CPT. Connect nodes through graph handles or **Connections · keyboard controls**. Cyclic drafts can be saved, but cannot train or run inference.
+3. Select a node and click **Edit states**. Numeric columns default to three equal-width bins. Variable settings offers categorical, finite numeric and discretised representations, with manual, equal-width or quantile cuts.
+4. Edit categorical **state display names**, keeping original source values visible. Click **Apply state names** to commit nonblank, unique aliases. This does not change encoding, evidence or CPTs.
+5. Set **Decimal places** per numeric variable (0–12, default 2). Thresholds remain full precision; **Exact thresholds** shows stored cuts. Warnings identify indistinguishable rounded boundaries. Exact cuts enter the upper bin.
+6. Choose **Learn from data** or **Force uniform CPT** for CSV-backed variables. A variable with a manual parent needs a uniform CPT because the CSV has no observations for that parent.
+7. Review the retained counts and click **Train model**. The estimator and smoothing settings are under **Advanced training settings**. Dirichlet smoothing defaults to α=1 per child-state cell. Maximum likelihood requires observations for every learned row.
 
 Uniform mode assigns equal probabilities in **every parent configuration**, retains edges and original observation counts, and leaves other variables trained from the original dataset. It does not rebalance data or guarantee uniform posteriors under evidence. CPT inspection explicitly identifies uniform overrides.
 
 Empty fields are missing initially; strings such as `NA` remain categories unless explicitly configured. Learning excludes incomplete rows across selected variables. Bin fitting uses nonmissing observations in that source column when settings are applied; later row exclusion does not silently refit cuts. Variables need 2–64 states; exclude constant columns. Source data and fitted transformations are retained for reproducibility and later surrogate work.
 
-## Train & Inference workspace
+## Cantilever beam example
 
-The upper area contains a read-only probability graph and tabbed query results. The bottom controls contain training, shared evidence and query configuration. Resize their height balance with the slider; narrow screens stack the sections.
+In a new project, click **Load cantilever beam example**. Open **Cantilever tutorial** in the Network tab for the sizing problem, equations, and a walkthrough. A seeded Latin hypercube produces 512 cases across width and depth (10–50 mm each), tip load (50–200 N), and material. The fourth sampling axis is split into equal thirds for steel, aluminium, and titanium. Each case uses one material. The span is fixed at 500 mm. [Latin hypercube sampling reference](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.qmc.LatinHypercube.html)
 
-1. **Review training data**, inspect retained/excluded counts, select MLE or Dirichlet, and click **Train model**. Training commits all CPTs atomically. MLE blocks unobserved learned rows; explicit Dirichlet smoothing defaults to α=1 **per child-state cell**. Uniform rows are valid without observations.
-2. Assign a single state, an allowed-state set, or a numeric threshold to any model variables. Numeric observations map through the saved cuts. All query groups share this evidence.
-3. Create named query views, select targets, and reorder them using the arrow buttons. One target produces prior/posterior bars; two produce a joint heatmap; three or more produce a combination table. Tables support sorting, pagination and state filtering.
-4. Click **Run inference** to update **every graph node** and every configured query group together. Observed targets are restricted to their allowed states. Evidence/model/query changes mark previous output outdated.
-5. Filters do not renormalise probabilities. Displayed probability mass describes the matching combinations, while exports contain the full selected distribution.
+The dataset uses linear elastic beam theory with a fixed root and a point load at the free end. With section inertia I = bh³/12, it calculates root bending stress FL(h/2)/I and tip deflection FL³/(3EI). The **Failure** node marks a case as **Fails** when stress exceeds the material’s assumed tutorial allowable (45 MPa for steel, 35 MPa for aluminium, or 55 MPa for titanium). It marks other cases **Passes** for this bending stress check. [Penn State machine design notes](https://www.me.psu.edu/sommer/me360/n04_review.pdf)
+
+The **Beam mass** node uses width, depth, and material, with volume bhL / 10⁹ in m³ and mass equal to density × volume. The **Design space** query compares materials and section ranges under a tip load of 87.50 to below 125.00 N, **Failure = Passes**, and **Beam mass < 1 kg**. View each material’s heatmap slice or compare the combinations in the joint table. The network groups the continuous inputs and mass into bins. Use the beam equations to check individual designs.
+
+Open **States & training** and click **Train model**. The seeded sample covers every combination of the default parent bins, so the example uses maximum likelihood. Compare material slices with the 1 kg mass threshold, then raise the limit to 2 kg and rerun to see how the design space changes.
+
+## Queries and Results
+
+1. In **Queries**, assign a single state, an allowed-state set, or a numeric threshold. Numeric observations map through the saved cuts. All query groups share this evidence.
+2. Create named queries, choose their targets, and reorder the targets using the arrow buttons. The summary shows **P ( query variables | evidence )** alongside the query name. **Save evidence with query** stores a copy of the active evidence with the selected query in the project file. **Apply saved evidence** restores it as the shared evidence for the next run. **Run query** updates every group and opens **Results**. **Edit query** returns to your selections.
+3. Switch between **Network graph** for individual probabilities at each node and **Query results** for diagrams and tables. One target shows prior and posterior bars. For joint queries, the heatmap shows two axes. Select a state for each additional target to view a slice. The scale stays fixed to the full distribution.
+4. Hover, focus or tap a heatmap cell to see its probability. Use arrow keys to move between cells. **Show values** displays all cell values. The **Table** view supports sorting, pagination and state filtering for joint queries.
 
 Joint probabilities are computed exactly through conditional inference, not multiplication of separate marginals. Limits are 4,096 combinations per group, 8,192 total, and 10 groups. These are output guards, not runtime guarantees. Cancellation and a 30-second watchdog preserve work; large queries may need fewer targets/states.
 
@@ -44,7 +50,7 @@ Joint probabilities are computed exactly through conditional inference, not mult
 
 **Save project** downloads schema-version-3 JSON. Old version-1 and version-2 projects migrate automatically, preserving learned probabilities, cuts, evidence and positions, and creating individual query views for their previous targets. Legacy files with more than 10 targets retain all views but require removing surplus groups before inference.
 
-CSV embedding is off by default. Saved CPTs remain queryable without raw data; reattach the exact matching CSV in Build to retrain. Opting into embedding includes the entire source CSV. Project files and exports contain model parameters and labels, which may be sensitive. There is no recovery database, telemetry, account or upload endpoint.
+CSV embedding is off by default. Saved CPTs remain queryable without raw data; reattach the exact matching CSV in Network to retrain CSV-backed variables. Opting into embedding includes the entire source CSV. Project files and exports contain model parameters and labels, which may be sensitive. There is no recovery database, telemetry, account or upload endpoint.
 
 Export the selected query as JSON/CSV. Exports retain target/state order, original source values and display labels, evidence, training provenance, fitted thresholds and full-precision probabilities. Keep project downloads as portable backups.
 
@@ -80,7 +86,7 @@ Expand **Multiple states / numeric threshold** in Shared evidence to select seve
 
 Set-valued evidence is computed exactly through disposable deterministic indicator leaves inside the inference worker. These leaves never appear in the model, saved file or images. Unresolved predicates can be saved as drafts. Impossible evidence preserves previous results as outdated.
 
-Each Build node has four connection handles. Drag from any side of a parent to any side of a child. Keyboard connection controls also select From/To sides. Side choices are saved as presentation only. Click an edge in Build, then use **Delete selected connection** or press Delete/Backspace to remove it. The Connections section also lists individual Remove buttons. Removing an edge invalidates affected CPTs and query results.
+Each node has four connection handles. Drag from any side of a parent to any side of a child. Keyboard connection controls also select From/To sides. **Auto layout** uses the handle sides to choose the direction of the network. When the directions are mixed, it follows the dominant direction and keeps each edge attached to its original sides. Click an edge in **Network**, then use **Delete selected connection** or press Delete/Backspace to remove it. The Connections section also lists individual Remove buttons. Removing an edge invalidates affected CPTs and query results.
 
 **Export network image** downloads Graphviz hierarchical SVG or PNG, optionally including current all-node probabilities. It exports the structure, independently of the canvas positions. **Layout direction → Auto** follows the predominant connection sides: bottom → top endpoints produce a top-down hierarchy, top → bottom produces bottom-up, and left/right connections produce a horizontal hierarchy. Dependencies determine the ranks. Mixed layouts use one overall direction (vertical wins ties), with explicit top-down, bottom-up, left-to-right and right-to-left overrides. Wider rank spacing and angled edge routing reduce looping paths while preserving the selected connection sides. Direction is an export setting and does not change saved positions or probabilities. Probability export requires current inference results. Graphviz runs locally in a cancellable worker; PNG rasterisation uses the browser canvas. Large PNGs are blocked with an SVG alternative.
 

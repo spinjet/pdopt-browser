@@ -10,6 +10,7 @@ import {
   datasetSchema,
   variableSchema,
   cptSchema,
+  evidenceSchema,
   type Project,
   type Dataset,
   LIMITS,
@@ -40,7 +41,9 @@ export const useProject = defineStore("project", () => {
   const revisions = ref({ model: 0, data: 0, query: 0 }),
     results = ref<z.infer<typeof resultSchema>>(),
     resultStamp = ref("");
-  const activeTab = ref<"build" | "inference">("build"),
+  const activeTab = ref<"network" | "states" | "queries" | "results">(
+      "network",
+    ),
     embedDataset = ref(false);
   const resultSnapshot = ref<Project>();
   const trainingPreview = ref<{
@@ -169,8 +172,14 @@ export const useProject = defineStore("project", () => {
     if (!v) return;
     const old = project.value.variables.findIndex((x) => x.id === v.id);
     if (old >= 0) {
-      v.label = project.value.variables[old].label;
-      v.position = project.value.variables[old].position;
+      const previousVariable = project.value.variables[old];
+      v.label = previousVariable.label;
+      v.position = previousVariable.position;
+      if (
+        v.representation !== previousVariable.representation ||
+        JSON.stringify(v.states) !== JSON.stringify(previousVariable.states)
+      )
+        clearSavedEvidenceFor(v.id, v.representation !== "categorical");
       project.value.variables[old] = v;
       const previous = project.value.evidence[v.id];
       if (
@@ -190,6 +199,67 @@ export const useProject = defineStore("project", () => {
     }
     if (selected.value === selectedAtStart) selected.value = v.id;
     touch();
+  }
+  function addManualNode(name: string) {
+    if (project.value.variables.length >= 100) {
+      error.value = "Maximum 100 variables.";
+      return false;
+    }
+    const id = crypto.randomUUID();
+    const index = project.value.variables.length;
+    const variable = variableSchema.parse({
+      id,
+      label: name.trim() || "Variable " + (index + 1),
+      columnId: "",
+      representation: "categorical",
+      states: ["False", "True"],
+      stateLabels: ["False", "True"],
+      displayDecimals: 0,
+      parameterMode: "uniform",
+      position: {
+        x: 40 + (index % 4) * 230,
+        y: 40 + Math.floor(index / 4) * 150,
+      },
+    });
+    project.value.variables.push(variable);
+    if (!project.value.queryGroups.length)
+      project.value.queryGroups.push({
+        id: crypto.randomUUID(),
+        name: variable.label.slice(0, 100),
+        targetIds: [id],
+      });
+    selected.value = id;
+    touch();
+    error.value = "";
+    return true;
+  }
+  function setManualStates(id: string, input: string) {
+    const variable = project.value.variables.find(
+      (v) => v.id === id && !v.columnId,
+    );
+    if (!variable) return;
+    const states = input
+      .split(/\r?\n/)
+      .map((state) => state.trim())
+      .filter(Boolean);
+    if (
+      states.length < 2 ||
+      states.length > LIMITS.states ||
+      new Set(states).size !== states.length ||
+      states.some((state) => state.length > 200)
+    ) {
+      error.value =
+        "Enter 2–64 distinct state names, at most 200 characters each.";
+      return;
+    }
+    if (JSON.stringify(states) !== JSON.stringify(variable.states)) {
+      variable.states = states;
+      variable.stateLabels = [...states];
+      delete project.value.evidence[id];
+      clearSavedEvidenceFor(id);
+      touch();
+    }
+    error.value = "";
   }
   function renameStates(id: string, labels: string[]) {
     const v = project.value.variables.find((v) => v.id === id);
@@ -293,6 +363,7 @@ export const useProject = defineStore("project", () => {
     );
     project.value.cpts = project.value.cpts.filter((c) => c.variableId !== id);
     delete project.value.evidence[id];
+    clearSavedEvidenceFor(id);
     for (const group of project.value.queryGroups)
       group.targetIds = group.targetIds.filter((x) => x !== id);
     selected.value = "";
@@ -311,13 +382,7 @@ export const useProject = defineStore("project", () => {
     if (p) trainingPreview.value = { ...p, stamp: trainingStamp() };
   }
   async function train(method: "mle" | "dirichlet", alpha: number) {
-    if (
-      !trainingPreview.value ||
-      trainingPreview.value.stamp !== trainingStamp()
-    ) {
-      error.value = "Review training data for the current model first.";
-      return;
-    }
+    const previousPreview = trainingPreview.value?.stamp === trainingStamp();
     const r = await job("train", payload({ method, alpha }), (x) => {
       const result = z
         .object({
@@ -332,7 +397,8 @@ export const useProject = defineStore("project", () => {
     if (!r) return;
     project.value.cpts = r.cpts;
     touch("model");
-    if (trainingPreview.value) trainingPreview.value.stamp = trainingStamp();
+    if (previousPreview && trainingPreview.value)
+      trainingPreview.value.stamp = trainingStamp();
     notice.value = `Trained ${r.cpts.length} CPTs from ${r.retained} rows; ${r.dropped} excluded.`;
   }
   async function query() {
@@ -377,7 +443,7 @@ export const useProject = defineStore("project", () => {
       results.value = r;
       resultSnapshot.value = snapshot;
       resultStamp.value = stamp();
-      notice.value = "Exact discrete inference completed.";
+      return true;
     }
   }
   async function openProject(text: string) {
@@ -406,7 +472,7 @@ export const useProject = defineStore("project", () => {
         return;
       client.cancel();
       project.value = p;
-      activeTab.value = "build";
+      activeTab.value = "network";
       dataset.value = d;
       results.value = undefined;
       resultSnapshot.value = undefined;
@@ -438,7 +504,7 @@ export const useProject = defineStore("project", () => {
     )
       return;
     client.cancel();
-    activeTab.value = "build";
+    activeTab.value = "network";
     project.value = emptyProject();
     dataset.value = undefined;
     results.value = undefined;
@@ -469,12 +535,44 @@ export const useProject = defineStore("project", () => {
         if (v) v.position = { x: pos.x, y: pos.y };
       }
       touch("display");
+      return true;
     }
   }
   function setEvidence(id: string, value: EvidenceValue | undefined) {
     if (value === undefined) delete project.value.evidence[id];
     else project.value.evidence[id] = value;
     touch("query");
+  }
+  function clearSavedEvidenceFor(id: string, keepThresholds = false) {
+    for (const group of project.value.queryGroups) {
+      const value = group.savedEvidence?.[id];
+      if (value === undefined) continue;
+      if (
+        keepThresholds &&
+        typeof value === "object" &&
+        value.kind === "threshold"
+      )
+        continue;
+      delete group.savedEvidence;
+    }
+  }
+  function saveQueryEvidence(id: string) {
+    const group = project.value.queryGroups.find((g) => g.id === id);
+    if (!group || busy.value) return;
+    group.savedEvidence = evidenceSchema.parse(project.value.evidence);
+    touch("display");
+    notice.value = `Evidence saved with “${group.name}”.`;
+  }
+  function applyQueryEvidence(id: string) {
+    const group = project.value.queryGroups.find((g) => g.id === id);
+    if (!group?.savedEvidence || busy.value) return;
+    const evidence = evidenceSchema.parse(group.savedEvidence);
+    if (JSON.stringify(evidence) !== JSON.stringify(project.value.evidence)) {
+      project.value.evidence = evidence;
+      touch("query");
+    }
+    error.value = "";
+    notice.value = `Applied saved evidence from “${group.name}”.`;
   }
   async function addThresholdCut(id: string) {
     try {
@@ -484,7 +582,7 @@ export const useProject = defineStore("project", () => {
         return;
       if (!dataset.value) {
         error.value =
-          "Reattach the source CSV in Build to add a cut and retrain.";
+          "Reattach the source CSV in Network to add a cut and retrain.";
         return;
       }
       if (
@@ -554,6 +652,8 @@ export const useProject = defineStore("project", () => {
   }
   return {
     setEvidence,
+    saveQueryEvidence,
+    applyQueryEvidence,
     addThresholdCut,
     exportGraph,
     exportSamples,
@@ -587,6 +687,8 @@ export const useProject = defineStore("project", () => {
     addEdge,
     removeNode,
     previewTraining,
+    addManualNode,
+    setManualStates,
     train,
     query,
     openProject,

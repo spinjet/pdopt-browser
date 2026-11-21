@@ -223,9 +223,11 @@ export function configureVariable(
   return v;
 }
 export function prepareRows(dataset: Dataset, p: Project) {
-  const indices = p.variables.map((v) => Number(v.columnId.slice(1)));
+  const indices = p.variables.map((v) =>
+    v.columnId ? Number(v.columnId.slice(1)) : -1,
+  );
   const retained = dataset.rows.filter((row) =>
-    indices.every((i) => !p.missingTokens.includes(row[i])),
+    indices.every((i) => i < 0 || !p.missingTokens.includes(row[i])),
   );
   if (!retained.length)
     throw new ModelError(
@@ -234,14 +236,16 @@ export function prepareRows(dataset: Dataset, p: Project) {
     );
   return {
     encoded: retained.map((row) =>
-      p.variables.map((v, i) => encode(v, row[indices[i]])),
+      p.variables.map((v, i) =>
+        indices[i] < 0 ? -1 : encode(v, row[indices[i]]),
+      ),
     ),
     retained: retained.length,
     dropped: dataset.rows.length - retained.length,
   };
 }
 export function train(
-  dataset: Dataset,
+  dataset: Dataset | undefined,
   p: Project,
   method: "mle" | "dirichlet",
   alpha: number,
@@ -257,7 +261,11 @@ export function train(
   const sizes = p.variables.map((v) => cptSize(p, v.id));
   if (sizes.reduce((a, b) => a + b, 0) > LIMITS.totalCells)
     throw new ModelError("RESOURCE_LIMIT", "Total CPT cells exceed 5,000,000.");
-  const prepared = prepareRows(dataset, p),
+  if (!dataset && p.variables.some((v) => v.columnId))
+    throw new Error("Reattach the matching CSV before training.");
+  const prepared = dataset
+      ? prepareRows(dataset, p)
+      : { encoded: [], retained: 0, dropped: 0 },
     a = method === "mle" ? 0 : alpha;
   const cpts: Cpt[] = p.variables.map((v, vi) => {
     const parentIds = parents(p, v.id),
@@ -265,7 +273,14 @@ export function train(
       r = v.states.length;
     const counts = Array(sizes[vi]).fill(0),
       rowCounts = Array(sizes[vi] / r).fill(0);
-    for (const row of prepared.encoded) {
+    const observable =
+      !!v.columnId && pi.every((i) => !!p.variables[i].columnId);
+    if (!observable && v.parameterMode === "learned")
+      throw new Error(
+        v.label +
+          " has a manual parent. Use a CSV-backed parent or set this variable to a uniform CPT.",
+      );
+    for (const row of observable ? prepared.encoded : []) {
       let j = 0;
       pi.forEach((i) => {
         j = j * p.variables[i].states.length + row[i];
@@ -295,7 +310,7 @@ export function train(
       signature: signature(p, v.id),
       origin: v.parameterMode === "uniform" ? "uniform" : method,
       alphaPerCell: v.parameterMode === "uniform" ? 0 : a,
-      datasetHash: dataset.hash,
+      datasetHash: dataset?.hash ?? "",
       trainedAt: new Date().toISOString(),
     };
   });
