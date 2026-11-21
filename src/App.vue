@@ -1,19 +1,55 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount } from "vue";
+import {
+  computed,
+  defineAsyncComponent,
+  ref,
+  watch,
+  onMounted,
+  onBeforeUnmount,
+} from "vue";
 import { useProject } from "./store";
 import { LIMITS } from "./domain";
 import { download } from "./files";
 import GraphExport from "./GraphExport.vue";
+import DataWorkspace from "./DataWorkspace.vue";
 import BuildWorkspace from "./BuildWorkspace.vue";
 import InferenceWorkspace from "./InferenceWorkspace.vue";
+const StudyWorkspace = defineAsyncComponent(
+  () => import("./StudyWorkspace.vue"),
+);
 const st = useProject(),
   openInput = ref<HTMLInputElement>();
-const tabs = [
+const workspaceTabs = [
+  { id: "data", label: "Data" },
+  { id: "exploration", label: "Probabilistic Exploration" },
+  { id: "study", label: "Optimisation Study" },
+] as const;
+const explorationTabs = [
   { id: "network", label: "Network" },
   { id: "states", label: "States & training" },
   { id: "queries", label: "Queries" },
   { id: "results", label: "Results" },
 ] as const;
+type WorkspaceTab = (typeof workspaceTabs)[number]["id"];
+type ExplorationTab = (typeof explorationTabs)[number]["id"];
+
+const workspaceTab = computed<WorkspaceTab>(() =>
+  st.activeTab === "data" || st.activeTab === "study"
+    ? st.activeTab
+    : "exploration",
+);
+const lastExplorationTab = ref<ExplorationTab>("network");
+watch(
+  [() => st.project.id, () => st.activeTab],
+  ([projectId, tab], [previousId]) => {
+    if (projectId !== previousId) lastExplorationTab.value = "network";
+    if (tab !== "data" && tab !== "study") lastExplorationTab.value = tab;
+  },
+  { flush: "sync" },
+);
+function selectWorkspace(id: WorkspaceTab) {
+  st.activeTab = id === "exploration" ? lastExplorationTab.value : id;
+}
 async function open(file: File | undefined) {
   if (!file) return;
   if (file.size > LIMITS.fileBytes) {
@@ -42,21 +78,26 @@ function save() {
     st.error = String(e);
   }
 }
-function tabKeys(e: KeyboardEvent) {
-  if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) {
-    e.preventDefault();
-    const index = tabs.findIndex((tab) => tab.id === st.activeTab);
-    const offset = e.key === "ArrowLeft" ? -1 : 1;
-    st.activeTab =
-      tabs[
-        e.key === "Home"
-          ? 0
-          : e.key === "End"
-            ? tabs.length - 1
-            : (index + offset + tabs.length) % tabs.length
-      ].id;
-    document.getElementById(`${st.activeTab}-tab`)?.focus();
-  }
+function tabKeys<T extends string>(
+  event: KeyboardEvent,
+  tabs: readonly { id: T }[],
+  activeId: string,
+  select: (id: T) => void,
+) {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  event.preventDefault();
+  const index = tabs.findIndex((tab) => tab.id === activeId);
+  const offset = event.key === "ArrowLeft" ? -1 : 1;
+  const next =
+    tabs[
+      event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? tabs.length - 1
+          : (index + offset + tabs.length) % tabs.length
+    ].id;
+  select(next);
+  document.getElementById(next + "-tab")?.focus();
 }
 function beforeUnload(e: BeforeUnloadEvent) {
   if (st.dirty) {
@@ -104,17 +145,17 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
       class="workspace-tabs"
       role="tablist"
       aria-label="Workspace"
-      @keydown="tabKeys"
+      @keydown="tabKeys($event, workspaceTabs, workspaceTab, selectWorkspace)"
     >
       <button
-        v-for="tab in tabs"
+        v-for="tab in workspaceTabs"
         :id="tab.id + '-tab'"
         :key="tab.id"
         role="tab"
         :aria-controls="tab.id + '-panel'"
-        :aria-selected="st.activeTab === tab.id"
-        :tabindex="st.activeTab === tab.id ? 0 : -1"
-        @click="st.activeTab = tab.id"
+        :aria-selected="workspaceTab === tab.id"
+        :tabindex="workspaceTab === tab.id ? 0 : -1"
+        @click="selectWorkspace(tab.id)"
       >
         {{ tab.label }}
       </button>
@@ -129,8 +170,43 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
     <div v-if="st.busy" class="banner working" role="status">
       Computing locally…<button @click="st.cancel()">Cancel computation</button>
     </div>
-    <BuildWorkspace />
-    <InferenceWorkspace />
+    <DataWorkspace />
+    <div
+      id="exploration-panel"
+      v-show="workspaceTab === 'exploration'"
+      role="tabpanel"
+      aria-labelledby="exploration-tab"
+    >
+      <div
+        class="view-switch exploration-views"
+        role="tablist"
+        aria-label="Exploration views"
+        @keydown="
+          tabKeys(
+            $event,
+            explorationTabs,
+            st.activeTab,
+            (id) => (st.activeTab = id),
+          )
+        "
+      >
+        <button
+          v-for="tab in explorationTabs"
+          :id="tab.id + '-tab'"
+          :key="tab.id"
+          role="tab"
+          :aria-controls="tab.id + '-panel'"
+          :aria-selected="st.activeTab === tab.id"
+          :tabindex="st.activeTab === tab.id ? 0 : -1"
+          @click="st.activeTab = tab.id"
+        >
+          {{ tab.label }}
+        </button>
+      </div>
+      <BuildWorkspace />
+      <InferenceWorkspace />
+    </div>
+    <StudyWorkspace v-if="st.activeTab === 'study' || st.project.study" />
     <footer>
       PDOPT · Browser version<span>(c) Andrea Spinelli 2023-2026</span>
     </footer>

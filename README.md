@@ -13,10 +13,10 @@ npm run dev
 
 Open the address Vite prints. Hosted users need only a modern browser, not Node.js or Python. Use HTTPS outside localhost; direct `file://` opening is unsupported.
 
-## Network and States & training
+## Data and Probabilistic Exploration
 
-1. Import UTF-8 CSV or click **Load cantilever beam example**. Delimiters, quoted fields and UTF-8 BOMs are supported; headers must be unique and nonblank. **Preview raw data** opens a wide dialog where you can scroll through the dataset with the headers pinned.
-2. Add columns as variables in **Network**, or add a manual categorical node with a uniform CPT. Connect nodes through graph handles or **Connections · keyboard controls**. Cyclic drafts can be saved, but cannot train or run inference.
+1. In **Data**, import a UTF-8 CSV, sample a column to start a dataset, or load the cantilever example. Use **Sample column** and **Calculate column** to preview and apply new values. The table scrolls with pinned headers. Imported headers must be unique and nonblank. Delimiters, quoted fields and UTF-8 BOMs are supported.
+2. Open **Probabilistic Exploration** and add columns as variables in **Network**, or add a manual categorical node with a uniform CPT. Connect nodes through graph handles or **Connections · keyboard controls**. Cyclic drafts can be saved, but cannot train or run inference.
 3. Select a node and click **Edit states**. Numeric columns default to three equal-width bins. Variable settings offers categorical, finite numeric and discretised representations, with manual, equal-width or quantile cuts.
 4. Edit categorical **state display names**, keeping original source values visible. Click **Apply state names** to commit nonblank, unique aliases. This does not change encoding, evidence or CPTs.
 5. Set **Decimal places** per numeric variable (0–12, default 2). Thresholds remain full precision; **Exact thresholds** shows stored cuts. Warnings identify indistinguishable rounded boundaries. Exact cuts enter the upper bin.
@@ -29,7 +29,7 @@ Empty fields are missing initially; strings such as `NA` remain categories unles
 
 ## Cantilever beam example
 
-In a new project, click **Load cantilever beam example**. Open **Cantilever tutorial** in the Network tab for the sizing problem, equations, and a walkthrough. A seeded Latin hypercube produces 512 cases across width and depth (10–50 mm each), tip load (50–200 N), and material. The fourth sampling axis is split into equal thirds for steel, aluminium, and titanium. Each case uses one material. The span is fixed at 500 mm. [Latin hypercube sampling reference](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.qmc.LatinHypercube.html)
+In a new project, click **Load cantilever beam example**. Open **Cantilever tutorial** in the Data tab for the sizing problem, equations, and a walkthrough. A seeded Latin hypercube produces 512 cases across width and depth (10–50 mm each), tip load (50–200 N), and material. The fourth sampling axis is split into equal thirds for steel, aluminium, and titanium. Each case uses one material. The span is fixed at 500 mm. [Latin hypercube sampling reference](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.qmc.LatinHypercube.html)
 
 The dataset uses linear elastic beam theory with a fixed root and a point load at the free end. With section inertia I = bh³/12, it calculates root bending stress FL(h/2)/I and tip deflection FL³/(3EI). The **Failure** node marks a case as **Fails** when stress exceeds the material’s assumed tutorial allowable (45 MPa for steel, 35 MPa for aluminium, or 55 MPa for titanium). It marks other cases **Passes** for this bending stress check. [Penn State machine design notes](https://www.me.psu.edu/sommer/me360/n04_review.pdf)
 
@@ -50,7 +50,7 @@ Joint probabilities are computed exactly through conditional inference, not mult
 
 **Save project** downloads schema-version-3 JSON. Old version-1 and version-2 projects migrate automatically, preserving learned probabilities, cuts, evidence and positions, and creating individual query views for their previous targets. Legacy files with more than 10 targets retain all views but require removing surplus groups before inference.
 
-CSV embedding is off by default. Saved CPTs remain queryable without raw data; reattach the exact matching CSV in Network to retrain CSV-backed variables. Opting into embedding includes the entire source CSV. Project files and exports contain model parameters and labels, which may be sensitive. There is no recovery database, telemetry, account or upload endpoint.
+CSV embedding is off by default. Saved CPTs remain queryable without raw data; reattach the exact matching CSV in Data to retrain CSV-backed variables. Opting into embedding includes the entire source CSV. Project files and exports contain model parameters and labels, which may be sensitive. There is no recovery database, telemetry, account or upload endpoint.
 
 Export the selected query as JSON/CSV. Exports retain target/state order, original source values and display labels, evidence, training provenance, fitted thresholds and full-precision probabilities. Keep project downloads as portable backups.
 

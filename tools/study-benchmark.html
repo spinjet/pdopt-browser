@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Study model benchmark</title>
+  </head>
+  <body>
+    <h1>Study model benchmark</h1>
+    <script type="module">
+      import BenchmarkWorker from "../src/study-benchmark.worker?worker";
+      let worker;
+      window.runStudyBenchmark = (runtime, stopAfter) =>
+        new Promise((resolve, reject) => {
+          worker = new BenchmarkWorker();
+          let lastFrame = performance.now(),
+            maxFrameGapMs = 0,
+            frames = 0,
+            frame;
+          function tick(now) {
+            maxFrameGapMs = Math.max(maxFrameGapMs, now - lastFrame);
+            lastFrame = now;
+            frames++;
+            frame = requestAnimationFrame(tick);
+          }
+          frame = requestAnimationFrame(tick);
+          function finish() {
+            cancelAnimationFrame(frame);
+            worker.terminate();
+          }
+          worker.onerror = (event) => {
+            finish();
+            reject(new Error(event.message));
+          };
+          worker.onmessage = ({ data }) => {
+            if (data.error) {
+              finish();
+              reject(new Error(data.error));
+              return;
+            }
+            if (data.ready && stopAfter) {
+              setTimeout(() => {
+                const start = performance.now();
+                finish();
+                resolve({
+                  cancelled: true,
+                  terminateMs: performance.now() - start,
+                });
+              }, 0);
+            }
+            if (data.report && !stopAfter) {
+              finish();
+              resolve({ runtime, ...data, maxFrameGapMs, frames });
+            }
+          };
+          worker.postMessage({ runtime });
+        });
+    </script>
+  </body>
+</html>

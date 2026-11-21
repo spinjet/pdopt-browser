@@ -1,7 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { unzipSync, strFromU8 } from "fflate";
-import { openDiscreteFixture } from "./fixtures";
+import { openDiscreteFixture, openExploration } from "./fixtures";
 const base = process.env.TEST_PATH || "/";
 async function init(page: Page) {
   page.on("dialog", (d) => d.accept());
@@ -13,13 +13,12 @@ async function init(page: Page) {
       "Temperature,Output\n0,no\n5,no\n10,yes\n15,yes\n20,yes\n",
     ),
   });
+  await openExploration(page, "Network");
   for (const label of ["Temperature", "Output"])
     await page
       .getByRole("button", { name: `Add ${label}`, exact: true })
       .click();
-  await page
-    .getByRole("tab", { name: "States & training", exact: true })
-    .click();
+  await openExploration(page, "States & training");
   await page
     .getByRole("combobox", { name: "Selected variable", exact: true })
     .selectOption({ label: "Temperature" });
@@ -33,18 +32,16 @@ async function init(page: Page) {
   await expect(
     page.getByText("3 EFFECTIVE STATES", { exact: true }),
   ).toBeVisible();
-  await page.getByRole("tab", { name: "Network", exact: true }).click();
+  await openExploration(page, "Network");
 }
 async function train(page: Page) {
-  await page
-    .getByRole("tab", { name: "States & training", exact: true })
-    .click();
+  await openExploration(page, "States & training");
   await expect(page.getByText("5 rows retained · 0 excluded")).toBeVisible();
   await page.getByRole("button", { name: "Train model", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("Trained 2 CPTs");
 }
 async function run(page: Page) {
-  await page.getByRole("tab", { name: "Queries", exact: true }).click();
+  await openExploration(page, "Queries");
   await page.getByRole("button", { name: "Run query", exact: true }).click();
   await expect(
     page.getByText("Current results", { exact: true }),
@@ -79,11 +76,9 @@ test("four-side connections, exact numeric events, image and dependent sample do
     .getByRole("combobox", { name: "To side", exact: true })
     .selectOption("bottom");
   await c.getByRole("button", { name: "Connect", exact: true }).click();
-  await page
-    .getByRole("tab", { name: "States & training", exact: true })
-    .click();
+  await openExploration(page, "States & training");
   await train(page);
-  await page.getByRole("tab", { name: "Queries", exact: true }).click();
+  await openExploration(page, "Queries");
   const targets = page.getByRole("group", {
     name: "Targets for active query",
     exact: true,
@@ -169,23 +164,21 @@ test("categorical allowed-state selection invalidates old results and can be cle
 }) => {
   await page.goto(base);
   await openDiscreteFixture(page);
-  await page
-    .getByRole("tab", { name: "States & training", exact: true })
-    .click();
+  await openExploration(page, "States & training");
   await page.getByRole("button", { name: "Train model", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("Trained 3 CPTs");
   await run(page);
-  await page.getByRole("tab", { name: "Queries", exact: true }).click();
+  await openExploration(page, "Queries");
   const event = page.locator(".evidence-control").first();
   await event.locator("summary").click();
   await event.getByRole("listbox").selectOption(["0", "1"]);
-  await page.getByRole("tab", { name: "Results", exact: true }).click();
+  await openExploration(page, "Results");
   await expect(page.getByText(/Outdated results/)).toBeVisible();
   await run(page);
-  await page.getByRole("tab", { name: "Queries", exact: true }).click();
+  await openExploration(page, "Queries");
   await event.getByRole("listbox").selectOption(["1"]);
   await run(page);
-  await page.getByRole("tab", { name: "Queries", exact: true }).click();
+  await openExploration(page, "Queries");
   await page
     .getByRole("button", { name: "Clear evidence", exact: true })
     .click();
@@ -237,9 +230,7 @@ for (const operation of ["graph", "sample"] as const)
   }) => {
     await page.goto(base);
     await openDiscreteFixture(page);
-    await page
-      .getByRole("tab", { name: "States & training", exact: true })
-      .click();
+    await openExploration(page, "States & training");
     await page
       .getByRole("button", { name: "Train model", exact: true })
       .click();
@@ -279,7 +270,7 @@ for (const operation of ["graph", "sample"] as const)
         .getByRole("button", { name: "Cancel computation", exact: true })
         .click();
     else {
-      await page.getByRole("tab", { name: "Queries", exact: true }).click();
+      await openExploration(page, "Queries");
       await page
         .getByRole("group", { name: "Shared evidence", exact: true })
         .getByRole("combobox", { name: "Load", exact: true })

@@ -63,20 +63,37 @@ function latinHypercube() {
 }
 
 /** Euler–Bernoulli bending of a solid rectangular beam with a free-end point load. */
+export function evaluateCantilever(
+  width: number,
+  depth: number,
+  load: number,
+  material: (typeof materials)[number],
+) {
+  const inertia = (width * depth ** 3) / 12;
+  const volumeM3 = (width * depth * spanMm) / 1e9;
+  const stress = (load * spanMm * (depth / 2)) / inertia;
+  return {
+    stress,
+    deflection: (load * spanMm ** 3) / (3 * material.modulusMpa * inertia),
+    failure: stress > material.allowableMpa ? "Fails" : "Passes",
+    massKg: material.densityKgM3 * volumeM3,
+  };
+}
+
 export function cantileverCsv(): string {
   const rows = [cantileverHeaders.join(",")];
   const [widths, depths, loads, materialCoordinates] = latinHypercube();
   for (const [i, width] of widths.entries()) {
     const depth = depths[i],
       load = loads[i];
-    const inertia = (width * depth ** 3) / 12;
-    const volumeM3 = (width * depth * spanMm) / 1e9;
-    const stress = (load * spanMm * (depth / 2)) / inertia;
     const material =
       materials[Math.floor(materialCoordinates[i] * materials.length)];
-    const deflection =
-      (load * spanMm ** 3) / (3 * material.modulusMpa * inertia);
-    const massKg = material.densityKgM3 * volumeM3;
+    const { stress, deflection, failure, massKg } = evaluateCantilever(
+      width,
+      depth,
+      load,
+      material,
+    );
     rows.push(
       [
         width,
@@ -85,7 +102,7 @@ export function cantileverCsv(): string {
         material.name,
         stress.toFixed(6),
         deflection.toFixed(6),
-        stress > material.allowableMpa ? "Fails" : "Passes",
+        failure,
         massKg.toFixed(6),
       ].join(","),
     );

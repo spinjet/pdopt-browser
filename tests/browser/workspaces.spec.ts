@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { openExploration } from "./fixtures";
 
 test("cantilever tutorial demonstrates bending failure and a mass-constrained design space", async ({
   page,
@@ -36,23 +37,19 @@ test("cantilever tutorial demonstrates bending failure and a mass-constrained de
   await expect(page.getByRole("status")).toContainText(
     "Cantilever example ready",
   );
+  const rawData = page.getByRole("tabpanel", { name: "Data", exact: true });
   await expect(
-    page.getByText("512 rows · 8 columns", { exact: true }),
+    rawData.getByText("512 rows · 8 columns", { exact: true }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Preview raw data" }).click();
-  const rawData = page.getByRole("dialog", { name: "Raw data preview" });
   await expect(
     rawData.getByRole("columnheader", { name: "Beam mass (kg)" }),
   ).toBeVisible();
-  await rawData.getByRole("button", { name: "Close preview" }).click();
-  await page
-    .getByRole("tab", { name: "States & training", exact: true })
-    .click();
+  await openExploration(page, "States & training");
   await page.getByRole("button", { name: "Train model" }).click();
   await expect(page.getByRole("status")).toContainText(
     "Trained 8 CPTs from 512 rows",
   );
-  await page.getByRole("tab", { name: "Queries", exact: true }).click();
+  await openExploration(page, "Queries");
   const evidence = page.getByRole("group", { name: "Shared evidence" });
   const heatmap = page.locator(".joint-heatmap");
   await page.getByRole("tab", { name: "Design space", exact: true }).click();
@@ -110,7 +107,7 @@ test("cantilever tutorial demonstrates bending failure and a mass-constrained de
     .getByTestId("project-file")
     .setInputFiles(await (await file).path());
   await expect(page.getByRole("status")).toContainText("Project opened");
-  await page.getByRole("tab", { name: "Queries", exact: true }).click();
+  await openExploration(page, "Queries");
   await page.getByRole("tab", { name: "Design space", exact: true }).click();
   await page
     .getByRole("button", { name: "Clear evidence", exact: true })
@@ -138,12 +135,11 @@ test("wide raw data scrolls to the last row and column while keeping headers vis
     mimeType: "text/csv",
     buffer: Buffer.from([headers.join(","), ...rows].join("\n")),
   });
-  const preview = page.getByRole("button", { name: "Preview raw data" });
-  await preview.click();
-  const dialog = page.getByRole("dialog", { name: "Raw data preview" });
+  const dialog = page.getByRole("tabpanel", { name: "Data", exact: true });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole("columnheader")).toHaveCount(headers.length);
   const table = dialog.getByRole("region", { name: "Preview rows" });
+  await table.scrollIntoViewIfNeeded();
   expect(await table.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(
     true,
   );
@@ -160,9 +156,10 @@ test("wide raw data scrolls to the last row and column while keeping headers vis
   await expect(
     dialog.getByRole("cell", { name: "R1 C1", exact: true }),
   ).toHaveCount(0);
-  await page.keyboard.press("Escape");
+  await openExploration(page, "Network");
   await expect(dialog).not.toBeVisible();
-  await expect(preview).toBeFocused();
+  await page.getByRole("button", { name: "Manage data", exact: true }).click();
+  await expect(dialog).toBeVisible();
 });
 
 test("raw data beyond the first 100,000 rows is accessible by row range", async ({
@@ -176,8 +173,7 @@ test("raw data beyond the first 100,000 rows is accessible by row range", async 
       "Index,Value\n" + "1,a\n".repeat(100_000) + "100001,last sample\n",
     ),
   });
-  await page.getByRole("button", { name: "Preview raw data" }).click();
-  const dialog = page.getByRole("dialog", { name: "Raw data preview" });
+  const dialog = page.getByRole("tabpanel", { name: "Data", exact: true });
   const range = dialog.getByRole("combobox", { name: "Row range" });
   await range.selectOption("1");
   await expect(
@@ -194,6 +190,7 @@ test("a 10 by 10 result fits on a laptop and shares probabilities with the netwo
 }) => {
   await page.setViewportSize({ width: 1366, height: 768 });
   await page.goto(process.env.TEST_PATH || "/");
+  await openExploration(page, "Network");
   await page.getByText("Add a manual node", { exact: true }).click();
   for (const label of ["Load", "Response"]) {
     await page.getByLabel("Variable name").fill(label);
@@ -203,8 +200,7 @@ test("a 10 by 10 result fits on a laptop and shares probabilities with the netwo
       .getByLabel("States (one per line)")
       .fill(Array.from({ length: 10 }, (_, i) => label + " " + i).join("\n"));
     await page.getByRole("button", { name: "Apply states" }).click();
-    if (label === "Load")
-      await page.getByRole("tab", { name: "Network", exact: true }).click();
+    if (label === "Load") await openExploration(page, "Network");
   }
   await page.getByRole("button", { name: "Train model" }).click();
   await expect(page.getByRole("status")).toContainText("Trained 2 CPTs");
@@ -214,7 +210,7 @@ test("a 10 by 10 result fits on a laptop and shares probabilities with the netwo
     .getByTestId("project-file")
     .setInputFiles((await (await projectDownload).path())!);
   await expect(page.getByRole("status")).toContainText(/opened/i);
-  await page.getByRole("tab", { name: "Queries", exact: true }).click();
+  await openExploration(page, "Queries");
   await page
     .getByRole("group", { name: "Targets for active query" })
     .getByLabel("Response")
@@ -266,4 +262,59 @@ test("a 10 by 10 result fits on a laptop and shares probabilities with the netwo
       .getByRole("group", { name: "Shared evidence" })
       .getByRole("combobox", { name: "Load", exact: true }),
   ).toHaveValue("0");
+});
+
+test("groups exploration views and remembers the selected view", async ({
+  page,
+}) => {
+  await page.goto(process.env.TEST_PATH || "/");
+  const workspace = page.getByRole("tablist", {
+    name: "Workspace",
+    exact: true,
+  });
+  const exploration = workspace.getByRole("tab", {
+    name: "Probabilistic Exploration",
+    exact: true,
+  });
+  const study = workspace.getByRole("tab", {
+    name: "Optimisation Study",
+    exact: true,
+  });
+  const views = page.getByRole("tablist", { name: "Exploration views" });
+  await expect(workspace.getByRole("tab")).toHaveText([
+    "Data",
+    "Probabilistic Exploration",
+    "Optimisation Study",
+  ]);
+  await expect(views).toBeHidden();
+  await workspace
+    .getByRole("tab", { name: "Data", exact: true })
+    .press("ArrowRight");
+  await expect(exploration).toBeFocused();
+  await expect(views.getByRole("tab")).toHaveText([
+    "Network",
+    "States & training",
+    "Queries",
+    "Results",
+  ]);
+  const network = views.getByRole("tab", { name: "Network", exact: true });
+  const results = views.getByRole("tab", { name: "Results", exact: true });
+  await expect(network).toHaveAttribute("aria-selected", "true");
+  await network.press("End");
+  await expect(results).toBeFocused();
+  await expect(
+    page.getByRole("tabpanel", { name: "Results", exact: true }),
+  ).toBeVisible();
+  await study.click();
+  await expect(
+    page.getByRole("tabpanel", { name: "Optimisation Study", exact: true }),
+  ).toBeVisible();
+  await expect(views).toBeHidden();
+  await exploration.click();
+  await expect(results).toHaveAttribute("aria-selected", "true");
+  await page.getByRole("button", { name: "New", exact: true }).click();
+  await exploration.click();
+  await expect(network).toHaveAttribute("aria-selected", "true");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(study).toBeInViewport({ ratio: 1 });
 });

@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { openDiscreteFixture } from "./fixtures";
+import { openDiscreteFixture, openExploration } from "./fixtures";
 const base = process.env.TEST_PATH || "/";
 for (const operation of ["cancel", "stale"] as const)
   test(`real WASM job: ${operation} preserves project and supports retry`, async ({
@@ -8,9 +8,7 @@ for (const operation of ["cancel", "stale"] as const)
     page.on("dialog", (d) => d.accept());
     await page.goto(base);
     await openDiscreteFixture(page);
-    await page
-      .getByRole("tab", { name: "States & training", exact: true })
-      .click();
+    await openExploration(page, "States & training");
     await expect(page.getByText("8 rows retained · 0 excluded")).toBeVisible();
     await page
       .getByRole("button", { name: "Train model", exact: true })
@@ -18,7 +16,7 @@ for (const operation of ["cancel", "stale"] as const)
     await expect(
       page.getByRole("status").filter({ hasText: "Trained 3 CPTs" }),
     ).toBeVisible();
-    await page.getByRole("tab", { name: "Queries", exact: true }).click();
+    await openExploration(page, "Queries");
     let release!: () => void;
     const barrier = new Promise<void>((r) => (release = r));
     let started!: () => void;
@@ -54,15 +52,13 @@ test("missing WASM preserves work and retry loads a fresh engine", async ({
 }) => {
   await page.goto(base);
   await openDiscreteFixture(page);
-  await page
-    .getByRole("tab", { name: "States & training", exact: true })
-    .click();
+  await openExploration(page, "States & training");
   await expect(page.getByText("8 rows retained · 0 excluded")).toBeVisible();
   await page.getByRole("button", { name: "Train model", exact: true }).click();
   await expect(
     page.getByRole("status").filter({ hasText: "Trained 3 CPTs" }),
   ).toBeVisible();
-  await page.getByRole("tab", { name: "Queries", exact: true }).click();
+  await openExploration(page, "Queries");
   await page.route("**/libagrum.wasm", (route) => route.abort());
   await page.getByRole("button", { name: "Run query", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText(

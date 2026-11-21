@@ -14,6 +14,7 @@ import ProbabilityGraph from "./ProbabilityGraph.vue";
 import EvidenceControl from "./EvidenceControl.vue";
 import SampleExport from "./SampleExport.vue";
 import QueryResults from "./QueryResults.vue";
+import { initialiseStudy } from "./study";
 const st = useProject(),
   view = ref<"graph" | "distribution">("distribution"),
   activeGroupId = ref("");
@@ -87,6 +88,31 @@ function probabilityNotation(project: Project, ids: string[]) {
     .join(", ");
   const evidence = evidenceTerms(project, project.evidence);
   return evidence ? `P ( ${targets} | ${evidence} )` : `P ( ${targets} )`;
+}
+async function startStudy() {
+  if (!st.current || !result.value || !completedGroup.value) return;
+  if (
+    st.project.study &&
+    !confirm("Replace the existing study with this query?")
+  )
+    return;
+  try {
+    const project = st.resultSnapshot ?? resultProject.value;
+    st.project.study = initialiseStudy(
+      project,
+      result.value,
+      completedGroup.value.id,
+      probabilityNotation(resultProject.value, result.value.targetIds),
+      st.revisions.model,
+      st.project.dataset?.hash,
+    );
+    st.touch("display");
+    st.activeTab = "study";
+    await nextTick();
+    document.getElementById("study-tab")?.focus();
+  } catch (error) {
+    st.error = (error as Error).message;
+  }
 }
 function target(id: string, checked: boolean) {
   if (!active.value) return;
@@ -438,6 +464,13 @@ function exportGroup(kind: "json" | "csv") {
             </select>
           </label>
           <span v-if="st.current" class="tiny muted">Current results</span>
+          <button
+            class="primary"
+            :disabled="!st.current || st.busy"
+            @click="startStudy"
+          >
+            Start study from this query
+          </button>
           <details class="result-exports">
             <summary>Export results</summary>
             <div class="result-actions">

@@ -2,6 +2,22 @@ import { expect, type Page } from "@playwright/test";
 import { emptyProject } from "../../src/domain";
 import { configureVariable, parseCsv } from "../../src/processing";
 
+export async function openExploration(
+  page: Page,
+  view: "Network" | "States & training" | "Queries" | "Results",
+) {
+  const workspace = page.getByRole("tab", {
+    name: "Probabilistic Exploration",
+    exact: true,
+  });
+  if ((await workspace.getAttribute("aria-selected")) !== "true")
+    await workspace.click();
+  await page
+    .getByRole("tablist", { name: "Exploration views" })
+    .getByRole("tab", { name: view, exact: true })
+    .click();
+}
+
 /** Small discrete network used by tests that assert specific posterior values. */
 export async function openDiscreteFixture(page: Page) {
   const csv = [

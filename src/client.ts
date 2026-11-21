@@ -5,6 +5,7 @@ const responseSchema = z.object({
   result: z.unknown().optional(),
   error: z.string().optional(),
   code: z.string().optional(),
+  progress: z.unknown().optional(),
 });
 export class ComputeClient {
   private worker: Worker | undefined;
@@ -15,6 +16,7 @@ export class ComputeClient {
         resolve: (v: unknown) => void;
         reject: (e: Error) => void;
         timer: ReturnType<typeof setTimeout>;
+        onProgress?: (update: unknown) => void;
       }
     | undefined;
   constructor(
@@ -35,6 +37,10 @@ export class ComputeClient {
       const r = parsed.data;
       if (this.pending?.id !== r.id) return;
       const pending = this.pending;
+      if (r.progress !== undefined) {
+        pending.onProgress?.(r.progress);
+        return;
+      }
       this.pending = undefined;
       clearTimeout(pending.timer);
       if (
@@ -54,7 +60,11 @@ export class ComputeClient {
         "Computation worker failed. Retry the operation.",
       );
   }
-  request(op: string, payload: unknown): Promise<unknown> {
+  request(
+    op: string,
+    payload: unknown,
+    options: { timeout?: number; onProgress?: (update: unknown) => void } = {},
+  ): Promise<unknown> {
     if (this.pending)
       return Promise.reject(
         new Error("A computation is already running. Cancel it first."),
@@ -66,11 +76,17 @@ export class ComputeClient {
         () =>
           this.cancel(
             "RESOURCE_LIMIT",
-            "Computation exceeded 30 seconds. Reduce the workload or retry.",
+            "Computation took too long. Reduce the workload or retry.",
           ),
-        30000,
+        options.timeout ?? 30000,
       );
-      this.pending = { id, resolve, reject, timer };
+      this.pending = {
+        id,
+        resolve,
+        reject,
+        timer,
+        onProgress: options.onProgress,
+      };
       try {
         this.worker!.postMessage({ id, op, payload });
       } catch (e) {

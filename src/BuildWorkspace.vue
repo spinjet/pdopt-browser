@@ -9,23 +9,7 @@ import {
   type Connection,
 } from "@vue-flow/core";
 import { useProject } from "./store";
-import { encode } from "./processing";
-import CantileverTutorial from "./CantileverTutorial.vue";
-import RawDataPreview from "./RawDataPreview.vue";
-import {
-  cantileverCsv,
-  cantileverInputs,
-  stressCutsMpa,
-  deflectionCutsMm,
-  massCutsKg,
-} from "./cantilever-example";
-import {
-  cptSize,
-  LIMITS,
-  stateLabel,
-  precisionWarning,
-  type Variable,
-} from "./domain";
+import { cptSize, stateLabel, precisionWarning, type Variable } from "./domain";
 const st = useProject(),
   flow = useVueFlow({ id: "build" });
 const stateNames = ref<string[]>([]);
@@ -41,6 +25,24 @@ const canTrain = computed(
     st.project.variables.length > 0 &&
     !st.cycles.length &&
     (!!st.dataset || st.project.variables.every((v) => !v.columnId)),
+);
+watch(
+  () => [st.project.id, st.project.example],
+  () => {
+    method.value = st.project.example === "cantilever" ? "mle" : "dirichlet";
+  },
+  { immediate: true },
+);
+let fittedExample: string | undefined;
+watch(
+  () => [st.activeTab, st.project.id, st.project.example] as const,
+  async ([tab, id, example]) => {
+    if (tab !== "network" || example !== "cantilever" || fittedExample === id)
+      return;
+    fittedExample = id;
+    await nextTick();
+    requestAnimationFrame(() => flow.fitView({ padding: 0.25 }));
+  },
 );
 const needsTraining = computed(
   () => st.project.cpts.length !== st.project.variables.length,
@@ -70,14 +72,10 @@ watch(
 );
 const selectedEdge = ref(""),
   graphCanvas = ref<HTMLDivElement>();
-const csvInput = ref<HTMLInputElement>(),
-  attachInput = ref<HTMLInputElement>();
-const delimiter = ref("");
 const representation = ref<Variable["representation"]>("categorical"),
   binMethod = ref<"manual" | "equalWidth" | "quantile">("equalWidth"),
   bins = ref(3),
-  manual = ref(""),
-  tokenText = ref("");
+  manual = ref("");
 type Side = "left" | "right" | "top" | "bottom";
 const sourceSide = ref<Side>("right"),
   targetSide = ref<Side>("left");
@@ -164,23 +162,6 @@ function inspect(id: string) {
     manual.value = v.binning?.cuts.join(", ") || "";
   }
 }
-async function read(file: File | undefined, kind: "csv" | "attach") {
-  if (!file) return;
-  if (file.size > LIMITS.fileBytes) {
-    st.error = "File exceeds 100 MiB.";
-    return;
-  }
-  try {
-    const text = new TextDecoder("utf-8", { fatal: true }).decode(
-      await file.arrayBuffer(),
-    );
-    if (kind === "attach") await st.reattach(text, file.name);
-    else await st.importCsv(text, file.name, delimiter.value);
-  } catch (e) {
-    st.error = String(e);
-  }
-  for (const el of [csvInput.value, attachInput.value]) if (el) el.value = "";
-}
 async function addColumn(i: number) {
   const p = st.dataset!.profiles[i];
   await st.configure(`c${i}`, p.numeric ? "discretised" : "categorical");
@@ -235,82 +216,6 @@ async function autoLayout() {
   await nextTick();
   await flow.fitView({ padding: 0.25 });
 }
-async function cantileverExample() {
-  if (!(await st.importCsv(cantileverCsv(), "cantilever-beam.csv"))) return;
-  for (const [i, { cuts }] of cantileverInputs.entries())
-    await st.configure(`c${i}`, "discretised", "manual", cuts.length + 1, cuts);
-  await st.configure("c3", "categorical");
-  await st.configure(
-    "c4",
-    "discretised",
-    "manual",
-    stressCutsMpa.length + 1,
-    stressCutsMpa,
-  );
-  await st.configure(
-    "c5",
-    "discretised",
-    "manual",
-    deflectionCutsMm.length + 1,
-    deflectionCutsMm,
-  );
-  await st.configure("c6", "categorical");
-  await st.configure(
-    "c7",
-    "discretised",
-    "manual",
-    massCutsKg.length + 1,
-    massCutsKg,
-  );
-  const [width, depth, load, material, stress, deflection, failure, mass] =
-    st.project.variables;
-  if (!mass || st.project.variables.length !== 8) return;
-
-  for (const input of [width, depth, load]) {
-    st.addEdge(input.id, stress.id, "bottom", "top");
-    st.addEdge(input.id, deflection.id, "bottom", "top");
-  }
-  st.addEdge(material.id, deflection.id, "bottom", "top");
-  st.addEdge(stress.id, failure.id, "bottom", "top");
-  st.addEdge(material.id, failure.id, "bottom", "top");
-  for (const input of [width, depth, material]) {
-    st.addEdge(input.id, mass.id, "bottom", "top");
-  }
-  st.project.queryGroups = [
-    {
-      id: crypto.randomUUID(),
-      name: "Stress and deflection",
-      targetIds: [stress.id, deflection.id],
-    },
-    {
-      id: crypto.randomUUID(),
-      name: "Bending failure",
-      targetIds: [failure.id],
-    },
-    {
-      id: crypto.randomUUID(),
-      name: "Beam mass",
-      targetIds: [mass.id],
-    },
-    {
-      id: crypto.randomUUID(),
-      name: "Design space",
-      targetIds: [width.id, depth.id, material.id],
-      savedEvidence: {
-        [load.id]: encode(load, "100"),
-        [failure.id]: failure.states.indexOf("Passes"),
-        [mass.id]: { kind: "threshold", operator: "lt", value: 1 },
-      },
-    },
-  ];
-  st.touch("query");
-  // The seeded design covers every combination of the default parent bins.
-  method.value = "mle";
-  await autoLayout();
-  await st.previewTraining();
-  st.notice =
-    "Cantilever example ready. Open States & training to train the model.";
-}
 function parentAssignment(
   c: NonNullable<typeof selectedCpt.value>,
   row: number,
@@ -334,54 +239,23 @@ function parentAssignment(
       aria-labelledby="network-tab"
       v-show="st.activeTab === 'network'"
     >
-      <aside class="data-panel panel" aria-label="Dataset and variables">
+      <aside class="data-panel panel" aria-label="Network variables">
         <div class="panel-heading">
-          <h2>Dataset & variables</h2>
+          <h2>Network variables</h2>
         </div>
-        <label class="field"
-          >CSV delimiter<select v-model="delimiter">
-            <option value="">Auto-detect</option>
-            <option value=",">Comma</option>
-            <option value=";">Semicolon</option>
-            <option :value="'\t'">Tab</option>
-          </select></label
-        >
-        <button
-          class="import-button"
-          @click="csvInput?.click()"
-          :disabled="st.busy"
-        >
-          <span>＋</span> Import CSV
-        </button>
         <div v-if="st.project.dataset" class="dataset-card">
-          <strong>{{ st.project.dataset.name }}</strong
-          ><small
+          <strong>{{ st.project.dataset.name }}</strong>
+          <small
             >{{ st.project.dataset.rowCount.toLocaleString() }} rows ·
             {{ st.project.dataset.headers.length }} columns</small
-          ><small>{{
+          >
+          <small>{{
             st.dataset ? "Source attached" : "Source not attached"
-          }}</small
-          ><button
-            v-if="!st.dataset"
-            @click="attachInput?.click()"
-            :disabled="st.busy"
-          >
-            Reattach matching CSV
-          </button>
+          }}</small>
         </div>
-        <p v-else class="muted">
-          Start with a local CSV, or explore a small synthetic example.
-        </p>
-        <div class="example-option">
-          <button
-            v-if="!st.project.variables.length"
-            @click="cantileverExample"
-            :disabled="st.busy"
-          >
-            Load cantilever beam example
-          </button>
-          <CantileverTutorial />
-        </div>
+        <button class="wide" @click="st.activeTab = 'data'">
+          {{ st.dataset ? "Manage data" : "Go to Data" }}
+        </button>
         <details class="manual-node">
           <summary>Add a manual node</summary>
           <form @submit.prevent="addManualNode">
@@ -390,32 +264,6 @@ function parentAssignment(
             /></label>
             <button :disabled="st.busy">Add node</button>
           </form>
-        </details>
-        <details v-if="st.dataset" class="missing-settings">
-          <summary>Missing-data policy</summary>
-          <p>
-            Incomplete rows across model variables are excluded. Empty fields
-            are always missing. Other strings, including NA, are kept unless
-            listed below.
-          </p>
-          <label class="field"
-            >Additional missing tokens (comma-separated)<input
-              v-model="tokenText"
-              placeholder="e.g. NA, null" /></label
-          ><button
-            @click="
-              st.project.missingTokens = [
-                '',
-                ...tokenText
-                  .split(',')
-                  .map((s) => s.trim())
-                  .filter(Boolean),
-              ];
-              st.touch('data');
-            "
-          >
-            Apply missing tokens
-          </button>
         </details>
         <div v-if="st.dataset" class="column-list">
           <div class="section-label">AVAILABLE COLUMNS</div>
@@ -451,19 +299,6 @@ function parentAssignment(
             </button>
           </div>
         </div>
-        <RawDataPreview
-          v-if="st.dataset"
-          :key="st.dataset.hash"
-          :dataset="st.dataset"
-        />
-        <label class="check embed"
-          ><input type="checkbox" v-model="st.embedDataset" />Include raw CSV in
-          project download</label
-        >
-        <p class="tiny muted">
-          Off by default. Model files with trained CPTs can be queried without
-          the CSV. Browser storage is not a backup.
-        </p>
       </aside>
       <section class="canvas-panel" aria-label="Network editor">
         <div class="canvas-heading">
@@ -922,7 +757,7 @@ function parentAssignment(
           {{ st.trainingPreview.dropped }} excluded
         </p>
         <p v-if="st.project.variables.some((v) => v.columnId) && !st.dataset">
-          Reattach the matching CSV in Network to train.
+          Reattach the matching CSV in Data to train.
         </p>
         <p v-if="st.cycles.length">
           Resolve the cycle in Network before training.
@@ -965,20 +800,5 @@ function parentAssignment(
         </details>
       </section>
     </main>
-    <input
-      data-testid="csv-file"
-      hidden
-      ref="csvInput"
-      type="file"
-      accept=".csv,text/csv"
-      @change="read(($event.target as HTMLInputElement).files?.[0], 'csv')"
-    /><input
-      data-testid="attach-file"
-      hidden
-      ref="attachInput"
-      type="file"
-      accept=".csv,text/csv"
-      @change="read(($event.target as HTMLInputElement).files?.[0], 'attach')"
-    />
   </div>
 </template>

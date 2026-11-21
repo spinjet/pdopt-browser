@@ -41,9 +41,9 @@ export const useProject = defineStore("project", () => {
   const revisions = ref({ model: 0, data: 0, query: 0 }),
     results = ref<z.infer<typeof resultSchema>>(),
     resultStamp = ref("");
-  const activeTab = ref<"network" | "states" | "queries" | "results">(
-      "network",
-    ),
+  const activeTab = ref<
+      "data" | "network" | "states" | "queries" | "results" | "study"
+    >("data"),
     embedDataset = ref(false);
   const resultSnapshot = ref<Project>();
   const trainingPreview = ref<{
@@ -94,7 +94,8 @@ export const useProject = defineStore("project", () => {
     }
   }
   function payload(options?: unknown) {
-    return { project: project.value, dataset: dataset.value, options };
+    const { study: _study, ...model } = project.value;
+    return { project: model, dataset: dataset.value, options };
   }
   async function importCsv(csv: string, name: string, delimiter = "") {
     const d = await job(
@@ -104,7 +105,7 @@ export const useProject = defineStore("project", () => {
     );
     if (!d) return;
     if (
-      project.value.variables.length &&
+      (project.value.dataset || project.value.variables.length) &&
       !confirm(
         "Replace the dataset and clear the current network? Save your project first if needed.",
       )
@@ -127,6 +128,60 @@ export const useProject = defineStore("project", () => {
     resultSnapshot.value = undefined;
     resultStamp.value = "";
     touch("data");
+    return true;
+  }
+  async function previewDataColumn(
+    column: import("./data-columns").ColumnRequest,
+  ) {
+    if (project.value.dataset && !dataset.value) {
+      error.value = "Reattach the source CSV before adding columns.";
+      return;
+    }
+    return await job(
+      "column",
+      { column, dataset: dataset.value, tokens: project.value.missingTokens },
+      (x) =>
+        z
+          .object({
+            dataset: datasetSchema,
+            references: z.array(z.number()),
+            examples: z.array(
+              z.object({ row: z.number(), message: z.string() }),
+            ),
+            missing: z.number(),
+            sourceHash: z.string(),
+          })
+          .parse(x),
+    );
+  }
+  function appendDataColumn(next: Dataset, sourceHash: string) {
+    const currentHash = dataset.value?.hash ?? "";
+    if (
+      busy.value ||
+      currentHash !== sourceHash ||
+      (project.value.dataset?.hash ?? "") !== sourceHash
+    )
+      return false;
+    const d = dataset.value;
+    if (
+      next.headers.length !== (d?.headers.length ?? 0) + 1 ||
+      (d &&
+        (d.rows.length !== next.rows.length ||
+          d.headers.some((name, i) => name !== next.headers[i])))
+    )
+      return false;
+    if (project.value.study?.sourceHash === sourceHash && sourceHash)
+      project.value.study.sourceHash = next.hash;
+    dataset.value = next;
+    project.value.dataset = {
+      name: next.name,
+      hash: next.hash,
+      rowCount: next.rows.length,
+      headers: next.headers,
+      delimiter: next.delimiter,
+    };
+    // The existing columns and complete-case mask are unchanged.
+    touch("display");
     return true;
   }
   async function reattach(csv: string, name: string) {
@@ -402,7 +457,8 @@ export const useProject = defineStore("project", () => {
     notice.value = `Trained ${r.cpts.length} CPTs from ${r.retained} rows; ${r.dropped} excluded.`;
   }
   async function query() {
-    const snapshot = JSON.parse(JSON.stringify(project.value)) as Project;
+    const { study: _study, ...model } = project.value;
+    const snapshot = JSON.parse(JSON.stringify(model)) as Project;
     const r = await job(
       "infer",
       {
@@ -472,7 +528,7 @@ export const useProject = defineStore("project", () => {
         return;
       client.cancel();
       project.value = p;
-      activeTab.value = "network";
+      activeTab.value = p.variables.length ? "network" : "data";
       dataset.value = d;
       results.value = undefined;
       resultSnapshot.value = undefined;
@@ -504,7 +560,7 @@ export const useProject = defineStore("project", () => {
     )
       return;
     client.cancel();
-    activeTab.value = "network";
+    activeTab.value = "data";
     project.value = emptyProject();
     dataset.value = undefined;
     results.value = undefined;
@@ -582,7 +638,7 @@ export const useProject = defineStore("project", () => {
         return;
       if (!dataset.value) {
         error.value =
-          "Reattach the source CSV in Network to add a cut and retrain.";
+          "Reattach the source CSV in Data to add a cut and retrain.";
         return;
       }
       if (
@@ -682,6 +738,8 @@ export const useProject = defineStore("project", () => {
     trainingStamp,
     touch,
     importCsv,
+    previewDataColumn,
+    appendDataColumn,
     reattach,
     configure,
     addEdge,

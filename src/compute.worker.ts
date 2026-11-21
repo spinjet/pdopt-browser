@@ -13,6 +13,7 @@ const requestSchema = z.object({
   id: z.number().int(),
   op: z.enum([
     "import",
+    "column",
     "configure",
     "preview",
     "train",
@@ -40,6 +41,17 @@ self.onmessage = async ({ data }) => {
         })
         .parse(raw);
       result = await parseCsv(p.csv, p.name, p.delimiter, p.tokens);
+    } else if (request.op === "column") {
+      const { columnRequestSchema, previewColumn } =
+        await import("./data-columns");
+      const p = z
+        .object({
+          column: columnRequestSchema,
+          dataset: datasetSchema.optional(),
+          tokens: z.array(z.string()),
+        })
+        .parse(raw);
+      result = await previewColumn(p.column, p.dataset, p.tokens);
     } else {
       const p = z
         .object({

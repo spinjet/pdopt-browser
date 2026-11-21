@@ -1,13 +1,11 @@
 import { test, expect, type Page } from "@playwright/test";
-import { openDiscreteFixture } from "./fixtures";
+import { openDiscreteFixture, openExploration } from "./fixtures";
 const base = process.env.TEST_PATH || "/";
 async function inference(page: Page) {
-  await page
-    .getByRole("tab", { name: "States & training", exact: true })
-    .click();
+  await openExploration(page, "States & training");
 }
 async function build(page: Page) {
-  await page.getByRole("tab", { name: "Network", exact: true }).click();
+  await openExploration(page, "Network");
 }
 async function example(page: Page) {
   await page.goto(base);
@@ -53,8 +51,11 @@ test("CSV → build → training → shared evidence → posterior → save/open
     ),
   });
   await expect(
-    page.getByText("8 rows · 3 columns", { exact: true }),
+    page
+      .getByRole("tabpanel", { name: "Data", exact: true })
+      .getByText("8 rows · 3 columns", { exact: true }),
   ).toBeVisible();
+  await build(page);
   for (const [i, name] of ["Load", "Material", "Failure"].entries()) {
     await page
       .getByRole("button", { name: `Add ${name}`, exact: true })
@@ -79,7 +80,7 @@ test("CSV → build → training → shared evidence → posterior → save/open
   await inference(page);
   await expect(page.getByText("8 rows retained · 0 excluded")).toBeVisible();
   await train(page);
-  await page.getByRole("tab", { name: "Queries", exact: true }).click();
+  await openExploration(page, "Queries");
   await failureTarget(page);
   const evidence = page.getByRole("group", {
     name: "Shared evidence",
@@ -105,7 +106,7 @@ test("CSV → build → training → shared evidence → posterior → save/open
   const file = await download;
   await page.getByTestId("project-file").setInputFiles((await file.path())!);
   await expect(page.getByText("Source not attached")).toBeVisible();
-  await page.getByRole("tab", { name: "Queries", exact: true }).click();
+  await openExploration(page, "Queries");
   await page.getByRole("button", { name: "Run query", exact: true }).click();
   await expect(
     page.getByText("Current results", { exact: true }),
@@ -135,6 +136,8 @@ test("cyclic drafts survive embedded save/open and can be repaired in Build", as
     .selectOption({ label: "Load" });
   await c.getByRole("button", { name: "Connect", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("Cycle detected");
+  await page.getByRole("tab", { name: "Data", exact: true }).click();
+  await page.getByText("Data settings", { exact: true }).click();
   await page
     .getByRole("checkbox", { name: "Include raw CSV in project download" })
     .check();
@@ -147,7 +150,7 @@ test("cyclic drafts survive embedded save/open and can be repaired in Build", as
   await expect(
     page.getByRole("button", { name: "Train model", exact: true }),
   ).toBeDisabled();
-  await page.getByRole("tab", { name: "Queries", exact: true }).click();
+  await openExploration(page, "Queries");
   await expect(
     page.getByRole("button", { name: "Run query", exact: true }),
   ).toBeDisabled();
@@ -175,6 +178,7 @@ test("numeric cuts, precision-only edits, missing rows and exact-boundary eviden
       "Temperature,Material,Failure\n0,Steel,No\n5,Aluminium,No\n10,Steel,Yes\n15,Aluminium,Yes\n,Steel,No\n",
     ),
   });
+  await build(page);
   for (const [i, name] of ["Temperature", "Material", "Failure"].entries()) {
     await page
       .getByRole("button", { name: `Add ${name}`, exact: true })
@@ -183,9 +187,7 @@ test("numeric cuts, precision-only edits, missing rows and exact-boundary eviden
       i + 1,
     );
   }
-  await page
-    .getByRole("tab", { name: "States & training", exact: true })
-    .click();
+  await openExploration(page, "States & training");
   await page
     .getByRole("combobox", { name: "Selected variable", exact: true })
     .selectOption({ label: "Temperature" });
@@ -206,7 +208,7 @@ test("numeric cuts, precision-only edits, missing rows and exact-boundary eviden
     .getByRole("spinbutton", { name: "Decimal places", exact: true })
     .press("Tab");
   await expect(page.locator(".states")).toContainText("[10.000, +∞)");
-  await page.getByRole("tab", { name: "Network", exact: true }).click();
+  await openExploration(page, "Network");
   await page.getByText("Connections · keyboard controls").click();
   const c = page.locator(".connection-controls");
   await c
@@ -219,7 +221,7 @@ test("numeric cuts, precision-only edits, missing rows and exact-boundary eviden
   await inference(page);
   await expect(page.getByText("4 rows retained · 1 excluded")).toBeVisible();
   await train(page);
-  await page.getByRole("tab", { name: "Queries", exact: true }).click();
+  await openExploration(page, "Queries");
   const t = page.getByRole("group", {
     name: "Targets for active query",
     exact: true,

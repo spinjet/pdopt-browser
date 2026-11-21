@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
-import { openDiscreteFixture } from "./fixtures";
+import { openDiscreteFixture, openExploration } from "./fixtures";
 const base = process.env.TEST_PATH || "/";
 async function load(page: Page) {
   page.on("dialog", (d) => d.accept());
@@ -8,9 +8,7 @@ async function load(page: Page) {
   await openDiscreteFixture(page);
 }
 async function analysis(page: Page) {
-  await page
-    .getByRole("tab", { name: "States & training", exact: true })
-    .click();
+  await openExploration(page, "States & training");
 }
 async function train(page: Page) {
   await expect(page.getByText("8 rows retained · 0 excluded")).toBeVisible();
@@ -18,7 +16,7 @@ async function train(page: Page) {
   await expect(page.getByRole("status")).toContainText("Trained 3 CPTs");
 }
 async function run(page: Page) {
-  await page.getByRole("tab", { name: "Queries", exact: true }).click();
+  await openExploration(page, "Queries");
   await page.getByRole("button", { name: "Run query", exact: true }).click();
   await expect(
     page.getByText("Current results", { exact: true }),
@@ -35,9 +33,7 @@ test("branding, state aliases, uniform CPT training and presentation-only edits"
   await expect(
     page.getByRole("group", { name: "Shared evidence", exact: true }),
   ).not.toBeVisible();
-  await page
-    .getByRole("tab", { name: "States & training", exact: true })
-    .click();
+  await openExploration(page, "States & training");
   await page
     .getByRole("combobox", { name: "Selected variable", exact: true })
     .selectOption({ label: "Failure" });
@@ -51,15 +47,13 @@ test("branding, state aliases, uniform CPT training and presentation-only edits"
   await page
     .getByRole("combobox", { name: "Parameter mode", exact: true })
     .selectOption("uniform");
-  await page.getByRole("tab", { name: "Queries", exact: true }).click();
+  await openExploration(page, "Queries");
   await expect(
     page.getByRole("button", { name: "Run query", exact: true }),
   ).toBeDisabled();
-  await page
-    .getByRole("tab", { name: "States & training", exact: true })
-    .click();
+  await openExploration(page, "States & training");
   await train(page);
-  await page.getByRole("tab", { name: "Queries", exact: true }).click();
+  await openExploration(page, "Queries");
   const targets = page.getByRole("group", {
     name: "Targets for active query",
     exact: true,
@@ -87,14 +81,12 @@ test("branding, state aliases, uniform CPT training and presentation-only edits"
       .locator(".probability-node")
       .filter({ has: page.locator("strong", { hasText: "Failure" }) }),
   ).toContainText("Uniform CPT");
-  await page
-    .getByRole("tab", { name: "States & training", exact: true })
-    .click();
+  await openExploration(page, "States & training");
   await page
     .getByRole("textbox", { name: "State display name for No", exact: true })
     .fill("Working");
   await page.getByRole("button", { name: "Apply state names" }).click();
-  await page.getByRole("tab", { name: "Results", exact: true }).click();
+  await openExploration(page, "Results");
   await page
     .getByRole("button", { name: "Query results", exact: true })
     .click();
@@ -114,15 +106,13 @@ test("branding, state aliases, uniform CPT training and presentation-only edits"
   expect(c.origin).toBe("uniform");
   expect(c.values.every((p: number) => p === 0.5)).toBe(true);
   expect(c.counts.reduce((a: number, b: number) => a + b, 0)).toBe(8);
-  await page
-    .getByRole("tab", { name: "States & training", exact: true })
-    .click();
+  await openExploration(page, "States & training");
   await page
     .getByRole("textbox", { name: "State display name for Yes", exact: true })
     .fill("Working");
   await page.getByRole("button", { name: "Apply state names" }).click();
   await expect(page.getByRole("alert")).toContainText("unique");
-  await page.getByRole("tab", { name: "Queries", exact: true }).click();
+  await openExploration(page, "Queries");
   await expect(
     evidence
       .getByRole("combobox", { name: "Failure", exact: true })
@@ -134,11 +124,9 @@ test("joint heatmaps, tabbed groups, higher-dimensional filters and exports", as
 }) => {
   await load(page);
   await analysis(page);
-  await page
-    .getByRole("tab", { name: "States & training", exact: true })
-    .click();
+  await openExploration(page, "States & training");
   await train(page);
-  await page.getByRole("tab", { name: "Queries", exact: true }).click();
+  await openExploration(page, "Queries");
   const targets = page.getByRole("group", {
     name: "Targets for active query",
     exact: true,
@@ -157,7 +145,7 @@ test("joint heatmaps, tabbed groups, higher-dimensional filters and exports", as
     .getByRole("button", { name: "Network graph", exact: true })
     .click();
   await expect(page.locator(".probability-node")).toHaveCount(3);
-  await page.getByRole("tab", { name: "Queries", exact: true }).click();
+  await openExploration(page, "Queries");
   await page.getByRole("button", { name: "Add query", exact: true }).click();
   await targets.getByLabel("Material", { exact: true }).check();
   await targets.getByLabel("Failure", { exact: true }).check();
@@ -207,12 +195,12 @@ test("joint heatmaps, tabbed groups, higher-dimensional filters and exports", as
     .selectOption({ label: "Load × Failure" });
   await page.getByRole("button", { name: "Diagram", exact: true }).click();
   await expect(page.locator(".joint-heatmap")).toBeVisible();
-  await page.getByRole("tab", { name: "Queries", exact: true }).click();
+  await openExploration(page, "Queries");
   await page
     .getByRole("group", { name: "Shared evidence", exact: true })
     .getByRole("combobox", { name: "Material", exact: true })
     .selectOption({ label: "Aluminium" });
-  await page.getByRole("tab", { name: "Results", exact: true }).click();
+  await openExploration(page, "Results");
   await expect(
     page.getByRole("button", { name: "Export JSON", exact: true }),
   ).toBeDisabled();
@@ -251,7 +239,7 @@ test("v1 projects migrate to query views without changing saved CPTs", async ({
     buffer: Buffer.from(JSON.stringify(old)),
   });
   await expect(page.getByText("Source not attached")).toBeVisible();
-  await page.getByRole("tab", { name: "Queries", exact: true }).click();
+  await openExploration(page, "Queries");
   await expect(page.locator(".query-tabs [role=tab]")).toHaveCount(3);
   await run(page);
   await expect(page.locator(".probability-node")).toHaveCount(3);

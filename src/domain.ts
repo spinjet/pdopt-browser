@@ -68,9 +68,10 @@ export const queryGroupSchema = z.object({
   savedEvidence: evidenceSchema.optional(),
 });
 export type QueryGroup = z.infer<typeof queryGroupSchema>;
-export const projectSchema = z.object({
+const projectCoreSchema = z.object({
   schemaVersion: z.literal(3),
   id: z.string(),
+  example: z.literal("cantilever").optional(),
   name: z.string().min(1).max(200),
   variables: z.array(variableSchema).max(100),
   edges: z
@@ -101,6 +102,52 @@ export const projectSchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
 });
+export const studyValueSchema = z.union([finite, z.string()]);
+export const studyNodeSchema = z.object({
+  role: z.enum(["unused", "input", "fixed", "response"]),
+  min: finite.optional(),
+  max: finite.optional(),
+  categories: z.array(z.string()).max(LIMITS.states).optional(),
+  value: studyValueSchema.optional(),
+  objective: z.enum(["min", "max"]).optional(),
+  constraint: z
+    .union([
+      z.object({
+        kind: z.literal("numeric"),
+        operator: z.enum(["lt", "lte", "gt", "gte"]),
+        value: finite,
+      }),
+      z.object({
+        kind: z.literal("categories"),
+        values: z.array(z.string()).max(LIMITS.states),
+      }),
+      z.object({
+        kind: z.literal("states"),
+        states: z.array(z.number().int().nonnegative()).max(LIMITS.states),
+      }),
+    ])
+    .optional(),
+  predictors: z.array(z.string()).max(100).optional(),
+});
+export const studySchema = z.object({
+  id: z.uuid(),
+  groupId: z.string(),
+  notation: z.string(),
+  modelRevision: z.number().int().nonnegative(),
+  sourceHash: z.string().optional(),
+  snapshot: projectCoreSchema,
+  targetIds: z.array(z.string()).min(1).max(12),
+  shape: z.array(z.number().int().positive()).min(1).max(12),
+  posterior: z.array(finite.min(0).max(1)).min(1).max(4096),
+  coverage: finite.gt(0).max(1),
+  nodes: z.record(z.string(), studyNodeSchema),
+});
+export const projectSchema = projectCoreSchema.extend({
+  study: studySchema.optional(),
+});
+export type Study = z.infer<typeof studySchema>;
+export type StudyNode = z.infer<typeof studyNodeSchema>;
+export type StudyValue = z.infer<typeof studyValueSchema>;
 export type Variable = z.infer<typeof variableSchema>;
 export type Cpt = z.infer<typeof cptSchema>;
 export type Project = z.infer<typeof projectSchema>;
@@ -339,6 +386,25 @@ export function validateProject(input: unknown): Project {
       )
         throw new Error("CPT probabilities must sum to 1.");
     }
+  }
+  if (p.study) {
+    const study = p.study;
+    const graph = validateProject(study.snapshot);
+    const shape = study.targetIds.map(
+      (id) => graph.variables.find((v) => v.id === id)?.states.length,
+    );
+    const group = graph.queryGroups.find((g) => g.id === study.groupId);
+    if (
+      graph.id !== p.id ||
+      !group ||
+      JSON.stringify(group.targetIds) !== JSON.stringify(study.targetIds) ||
+      JSON.stringify(shape) !== JSON.stringify(study.shape) ||
+      study.shape.reduce((a, b) => a * b, 1) !== study.posterior.length ||
+      Math.abs(study.posterior.reduce((a, b) => a + b, 0) - 1) > 1e-9 ||
+      Object.keys(study.nodes).length !== graph.variables.length ||
+      graph.variables.some((v) => !Object.hasOwn(study.nodes, v.id))
+    )
+      throw new Error("Invalid study query snapshot or node settings.");
   }
   validateEvidence(p.variables, p.evidence);
   for (const group of p.queryGroups)

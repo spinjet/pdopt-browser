@@ -104,10 +104,30 @@ const tutorial = ref<HTMLDialogElement>();
             0.54 kg.
           </li>
         </ul>
+        <h3>Calculate two columns</h3>
+        <p>
+          Open <strong>Data</strong> and choose
+          <strong>Calculate column</strong>. Try these formulas:
+        </p>
+        <ul>
+          <li>
+            <strong>Section area (mm²)</strong>
+            <code>=[Width (mm)] * [Depth (mm)]</code>
+          </li>
+          <li>
+            <strong>Passes under 1 kg</strong>
+            <code>=AND([Failure] = "Passes", [Beam mass (kg)] &lt; 1)</code>
+          </li>
+        </ul>
+        <p>
+          The flag is 1 when both requirements hold and 0 when either fails. An
+          unavailable measurement produces a blank result. Preview the columns
+          before applying them.
+        </p>
         <h3>Find a feasible design space</h3>
         <ol>
           <li>
-            Load the example in <strong>Network</strong>, then click
+            Load the example in <strong>Data</strong>, then click
             <strong>Train model</strong> in
             <strong>States &amp; training</strong>.
           </li>
@@ -144,6 +164,17 @@ const tutorial = ref<HTMLDialogElement>();
             <strong>Save project</strong>.
           </li>
         </ol>
+        <h3>Optimise the retained regions</h3>
+        <p>
+          Restore the saved 1 kg evidence and rerun
+          <strong>Design space</strong>. Choose
+          <strong>Start study from this query</strong>, review the retained
+          cells, and set the exact tip load in Setup. Fit the surrogates and
+          search the regions. In Explore, switch to <strong>Verified</strong> to
+          compare designs evaluated with the beam equations. Select part of the
+          Pareto front and open <strong>Parallel coordinates</strong> to inspect
+          its dimensions and materials.
+        </p>
         <p>
           The Bayesian network groups continuous values into ranges. A cell can
           contain a mix of passing and failing designs. Check exact dimensions

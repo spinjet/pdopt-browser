@@ -1,6 +1,7 @@
 node_modules/
 dist/
 public/vendor/
+study-benchmark-assets/
 test-results/
 playwright-report/
 

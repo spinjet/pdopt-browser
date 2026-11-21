@@ -253,6 +253,7 @@ export async function infer(
       };
     // The beta binding does not diagnose impossible evidence. Validate each
     // conditional factor P(e_i | e_1..e_(i-1)) before adding that assignment.
+    let logEvidence = 0;
     for (const [id, state] of Object.entries(hard)) {
       const p = distribution(await bn.getPosterior(ids.get(id)!));
       if (p[state] === 0)
@@ -262,6 +263,7 @@ export async function infer(
         );
       if (p[state] === undefined)
         throw new ModelError("UNKNOWN_STATE", "Evidence state does not exist.");
+      logEvidence += Math.log(p[state]);
       await bn.addEvidence(ids.get(id)!, state);
       await bn.computeInference();
     }
@@ -269,7 +271,7 @@ export async function infer(
     for (const id of targets)
       posterior[id] = distribution(await bn.getPosterior(ids.get(id)!));
     for (const g of groups) joints[g.id].posterior = await joint(g, hard);
-    return { prior, posterior, groups: joints };
+    return { prior, posterior, groups: joints, logEvidence };
   } finally {
     bn.destroy();
   }
