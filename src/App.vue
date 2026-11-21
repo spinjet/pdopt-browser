@@ -65,7 +65,7 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
       <div class="brand">
         <span class="brand-mark">BN</span>
         <div>
-          <strong>PDOPT-BN</strong><small>LOCAL-FIRST MODEL WORKSPACE</small>
+          <strong>PDOPT</strong><small>Probabilistic Design and Optimisation</small>
         </div>
       </div>
       <div class="project-name">
@@ -144,8 +144,8 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
       <InferenceWorkspace />
     </section>
     <footer>
-      PDOPT-BN · Browser prototype<span
-        >No accounts. No data uploads. No telemetry.</span
+      PDOPT · Browser version<span
+        >(c) Andrea Spinelli 2023-2026</span
       >
     </footer>
     <input
