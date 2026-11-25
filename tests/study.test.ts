@@ -4,8 +4,6 @@ import {
   cantileverCsv,
   cantileverInputs,
   massCutsKg,
-  materials,
-  evaluateCantilever,
 } from "../src/cantilever-example";
 import { configureVariable, parseCsv } from "../src/processing";
 import {
@@ -16,7 +14,11 @@ import {
   studyResponses,
 } from "../src/study";
 import { searchStudy } from "../src/study-search";
-import { fitStudy } from "../src/study-model";
+import {
+  fitStudy,
+  scoreValidation,
+  type TrainingSplit,
+} from "../src/study-model";
 
 async function beam() {
   const csv = cantileverCsv();
@@ -86,7 +88,7 @@ test("selects joint regions with ties and reports bounds clipping and available 
   );
 });
 
-test("fits the beam responses, preserves joint region bounds and verifies every feasible design", async () => {
+test("fits the beam responses, preserves joint region bounds and checks surrogate feasibility", async () => {
   const { study, dataset, project, w, d, load, material, mass, failure } =
     await beam();
   expect(study.nodes[mass.id]).toMatchObject({
@@ -104,8 +106,8 @@ test("fits the beam responses, preserves joint region bounds and verifies every 
   const { retained } = checkStudy(study, dataset);
   const models = fitStudy(study, dataset, () => {});
   const run = searchStudy(study, retained, models, () => {});
-  const verified = run.designs.filter((x) => x.verified?.pareto);
-  expect(verified.length).toBeGreaterThan(3);
+  const front = run.designs.filter((x) => x.predicted.pareto);
+  expect(front.length).toBeGreaterThan(0);
   expect(run.validation.every((row) => row.holdout > 0)).toBe(true);
   for (const design of run.designs) {
     const region = retained.find((r) => r.index === design.region)!;
@@ -120,19 +122,10 @@ test("fits the beam responses, preserves joint region bounds and verifies every 
         expect(design.inputs[v.id]).toBeLessThanOrEqual(bounds.max);
       }
     }
-    if (design.verified?.pareto) {
-      const selected = materials.find(
-        (m) => m.name === design.inputs[material.id],
-      )!;
-      const result = evaluateCantilever(
-        Number(design.inputs[w.id]),
-        Number(design.inputs[d.id]),
-        100,
-        selected,
-      );
-      expect(result.failure).toBe("Passes");
-      expect(result.massKg).toBeLessThan(1);
-      expect(design.verified.outputs[failure.id]).toBe("Passes");
+    if (design.predicted.pareto) {
+      expect(design.predicted.feasible).toBe(true);
+      expect(design.predicted.outputs[failure.id]).toBe("Passes");
+      expect(Number(design.predicted.outputs[mass.id])).toBeLessThan(1);
     }
   }
   const blocked = structuredClone(study);
@@ -143,7 +136,36 @@ test("fits the beam responses, preserves joint region bounds and verifies every 
   };
   expect(
     searchStudy(blocked, retained, models, () => {}).designs.every(
-      (d) => !d.verified!.feasible && !d.predicted.feasible,
+      (d) => !d.predicted.feasible,
     ),
   ).toBe(true);
+});
+
+test("normalises held-out numeric errors by the observed range", async () => {
+  const { mass } = await beam();
+  const split: TrainingSplit = {
+    train: [],
+    labels: [],
+    holdout: [[0], [1], [2]],
+    truth: [-2, 0, 8],
+    categorical: false,
+    dropped: 0,
+  };
+  const score = scoreValidation(mass, [], split, [-1, 2, 5]);
+  expect(score.value).toBe(2);
+  expect(score.numericError).toEqual({
+    minObserved: -2,
+    maxObserved: 8,
+    meanRelative: 0.2,
+    maxRelative: 0.3,
+  });
+  const constant = scoreValidation(
+    mass,
+    [],
+    { ...split, truth: [0, 0, 0] },
+    [1, 0, -1],
+  );
+  expect(constant.value).toBeCloseTo(2 / 3);
+  expect(constant.numericError?.meanRelative).toBeNull();
+  expect(constant.numericError?.maxRelative).toBeNull();
 });

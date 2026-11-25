@@ -11,7 +11,7 @@ import {
   type Variable,
 } from "./domain";
 import type { JointResult } from "./engine";
-import { cantileverHeaders, cantileverInputs } from "./cantilever-example";
+import { cantileverInputs } from "./cantilever-example";
 import { encode } from "./processing";
 import { nextDown } from "./numbers";
 
@@ -31,6 +31,12 @@ export interface Validation {
   predictors: string[];
   metric: "MAE" | "Accuracy";
   value: number;
+  numericError?: {
+    minObserved: number;
+    maxObserved: number;
+    meanRelative: number | null;
+    maxRelative: number | null;
+  };
   rows: number;
   dropped: number;
   holdout: number;
@@ -51,12 +57,10 @@ export interface StudyDesign {
   region: number;
   inputs: Record<string, StudyValue>;
   predicted: Evaluation;
-  verified?: Evaluation;
 }
 export interface StudyRun {
   validation: Validation[];
   designs: StudyDesign[];
-  verified: boolean;
 }
 export const STUDY_BUDGET = 12000;
 export const MAX_JS_TRAINING_ROWS = 768;
@@ -517,11 +521,4 @@ export function diagnosticProbabilities<
       return p.map((value) => (value > 0 ? 0 : null));
     }
   })();
-}
-
-export function beamColumns(study: Study) {
-  if (study.snapshot.example !== "cantilever") return null;
-  return cantileverHeaders.map((_, i) =>
-    study.snapshot.variables.find((v) => v.columnId === "c" + i),
-  );
 }

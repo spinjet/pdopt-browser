@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch, nextTick } from "vue";
+import { computed, ref, watch, nextTick, toRef } from "vue";
 import { useProject } from "./store";
 import {
   inferenceReady,
@@ -9,7 +9,7 @@ import {
   type Project,
 } from "./domain";
 import { validateQueries, querySize, QUERY_LIMITS } from "./engine";
-import { csvCell, download } from "./files";
+import { download } from "./files";
 import ProbabilityGraph from "./ProbabilityGraph.vue";
 import EvidenceControl from "./EvidenceControl.vue";
 import SampleExport from "./SampleExport.vue";
@@ -17,7 +17,7 @@ import QueryResults from "./QueryResults.vue";
 import { initialiseStudy } from "./study";
 const st = useProject(),
   view = ref<"graph" | "distribution">("distribution"),
-  activeGroupId = ref("");
+  activeGroupId = toRef(st, "activeGroupId");
 watch(
   () => st.project.queryGroups.map((g) => g.id),
   (ids) => {
@@ -25,11 +25,9 @@ watch(
   },
   { immediate: true },
 );
-const active = computed(() =>
-  st.project.queryGroups.find((g) => g.id === activeGroupId.value),
-);
+const active = toRef(st, "activeQuery");
 async function run() {
-  if (await st.query()) {
+  if (active.value && (await st.query(active.value))) {
     view.value = "distribution";
     st.activeTab = "results";
     await nextTick();
@@ -37,38 +35,31 @@ async function run() {
   }
 }
 function editQuery() {
+  if (
+    completedGroup.value &&
+    st.project.queryGroups.some((g) => g.id === completedGroup.value?.id)
+  )
+    activeGroupId.value = completedGroup.value.id;
   st.activeTab = "queries";
   document.getElementById("queries-tab")?.focus();
 }
 const resultProject = computed(() =>
-  st.current ? st.project : st.resultSnapshot || st.project,
+  st.current && st.resultSnapshot
+    ? { ...st.resultSnapshot, variables: st.project.variables }
+    : (st.resultSnapshot ?? st.project),
 );
 const queryError = computed(() => {
   try {
     inferenceReady(st.project);
-    resolveEvidence(st.project);
-    validateQueries(st.project.variables, st.project.queryGroups);
+    if (!active.value) return "Add a query to choose targets and evidence.";
+    resolveEvidence({ ...st.project, evidence: active.value.evidence ?? {} });
+    validateQueries(st.project.variables, [active.value]);
     return "";
   } catch (e) {
     return (e as Error).message;
   }
 });
-const totalSize = computed(() =>
-  st.project.queryGroups.reduce(
-    (n, g) => n + querySize(st.project.variables, g),
-    0,
-  ),
-);
-const completedGroups = computed(() =>
-  resultProject.value.queryGroups.filter(
-    (group) => st.results?.groups[group.id],
-  ),
-);
-const completedGroup = computed(
-  () =>
-    completedGroups.value.find((group) => group.id === activeGroupId.value) ??
-    completedGroups.value[0],
-);
+const completedGroup = computed(() => st.resultSnapshot?.queryGroups[0]);
 const result = computed(
   () => completedGroup.value && st.results?.groups[completedGroup.value.id],
 );
@@ -82,12 +73,16 @@ function evidenceTerms(project: Project, evidence: Project["evidence"]) {
     })
     .join(", ");
 }
-function probabilityNotation(project: Project, ids: string[]) {
+function probabilityNotation(
+  project: Project,
+  ids: string[],
+  evidence = project.evidence,
+) {
   const targets = ids
     .map((id) => project.variables.find((v) => v.id === id)?.label)
     .join(", ");
-  const evidence = evidenceTerms(project, project.evidence);
-  return evidence ? `P ( ${targets} | ${evidence} )` : `P ( ${targets} )`;
+  const terms = evidenceTerms(project, evidence);
+  return terms ? `P ( ${targets} | ${terms} )` : `P ( ${targets} )`;
 }
 async function startStudy() {
   if (!st.current || !result.value || !completedGroup.value) return;
@@ -142,8 +137,8 @@ function renameGroup(value: string) {
   st.touch("display");
   st.error = "";
 }
-async function addGroup() {
-  const id = st.addGroup();
+async function addGroup(duplicate = false) {
+  const id = st.addGroup(duplicate ? active.value : undefined);
   if (id) {
     activeGroupId.value = id;
     await nextTick();
@@ -163,9 +158,9 @@ function queryTabKeys(e: KeyboardEvent) {
   activeGroupId.value = groups[i].id;
   document.getElementById(`query-tab-${groups[i].id}`)?.focus();
 }
-function exportGroup(kind: "json" | "csv") {
+function exportGroup() {
   if (!st.current || !result.value || !completedGroup.value) return;
-  const project = st.project,
+  const project = resultProject.value,
     joint = result.value;
   const variables = joint.targetIds.map((id) =>
     project.variables.find((v) => v.id === id)!,
@@ -202,43 +197,10 @@ function exportGroup(kind: "json" | "csv") {
       binning: v.binning,
     })),
   };
-  if (kind === "json")
-    download(
-      "pdopt-bn-query.json",
-      JSON.stringify({ provenance, ...joint }, null, 2),
-    );
-  else {
-    const rows: unknown[][] = [
-      [
-        ...variables.flatMap((v) => [
-          `${v.id}:stateId`,
-          `${v.label}:stateLabel`,
-        ]),
-        "prior",
-        "posterior",
-        "provenance",
-      ],
-    ];
-    joint.posterior.forEach((p, index) => {
-      let rem = index;
-      const states = Array(variables.length).fill(0);
-      for (let i = variables.length - 1; i >= 0; i--) {
-        states[i] = rem % joint.shape[i];
-        rem = Math.floor(rem / joint.shape[i]);
-      }
-      rows.push([
-        ...variables.flatMap((v, i) => [states[i], stateLabel(v, states[i])]),
-        joint.prior[index],
-        p,
-        JSON.stringify(provenance),
-      ]);
-    });
-    download(
-      "pdopt-bn-query.csv",
-      rows.map((r) => r.map(csvCell).join(",")).join("\r\n"),
-      "text/csv",
-    );
-  }
+  download(
+    "pdopt-bn-query.json",
+    JSON.stringify({ provenance, ...joint }, null, 2),
+  );
 }
 </script>
 <template>
@@ -252,7 +214,7 @@ function exportGroup(kind: "json" | "csv") {
     <header class="workspace-heading">
       <h1>Queries</h1>
       <button
-        @click="addGroup"
+        @click="addGroup()"
         :disabled="
           st.project.queryGroups.length >= QUERY_LIMITS.groups ||
           !st.project.variables.length
@@ -282,8 +244,8 @@ function exportGroup(kind: "json" | "csv") {
     </div>
 
     <section class="query-controls" aria-label="Query settings">
-      <fieldset>
-        <legend>Shared evidence</legend>
+      <fieldset v-if="active" :key="active.id">
+        <legend>Query evidence</legend>
         <div class="evidence-list">
           <EvidenceControl
             v-for="v in st.project.variables"
@@ -291,14 +253,7 @@ function exportGroup(kind: "json" | "csv") {
             :variable="v"
           />
         </div>
-        <button
-          @click="
-            st.project.evidence = {};
-            st.touch('query');
-          "
-        >
-          Clear evidence
-        </button>
+        <button @click="st.clearEvidence()">Clear evidence</button>
       </fieldset>
       <fieldset
         id="query-configuration"
@@ -345,36 +300,20 @@ function exportGroup(kind: "json" | "csv") {
           </ol>
           <p class="tiny">
             {{ querySize(st.project.variables, active).toLocaleString() }}
-            combinations in this group · {{ totalSize.toLocaleString() }} total
+            combinations in this query
           </p>
-          <div class="saved-query-evidence">
-            <button
-              @click="st.saveQueryEvidence(active.id)"
-              :disabled="st.busy"
-            >
-              Save evidence with query
-            </button>
-            <button
-              @click="st.applyQueryEvidence(active.id)"
-              :disabled="st.busy || !active.savedEvidence"
-            >
-              Apply saved evidence
-            </button>
-            <p v-if="active.savedEvidence" class="muted">
-              Saved evidence:
-              {{
-                evidenceTerms(st.project, active.savedEvidence) ||
-                "None (prior)"
-              }}
-            </p>
-          </div>
+          <button
+            :disabled="st.project.queryGroups.length >= QUERY_LIMITS.groups"
+            @click="addGroup(true)"
+          >
+            Duplicate query
+          </button>
           <button class="danger" @click="st.removeGroup(active.id)">
             Remove query
           </button></template
         >
         <p class="tiny muted">
           Limits: {{ QUERY_LIMITS.perGroup.toLocaleString() }} per group,
-          {{ QUERY_LIMITS.total.toLocaleString() }} total,
           {{ QUERY_LIMITS.groups }} groups.
         </p>
       </fieldset>
@@ -383,11 +322,19 @@ function exportGroup(kind: "json" | "csv") {
       <div>
         <strong>{{ active?.name || "Choose a query" }}</strong>
         <p v-if="active?.targetIds.length" class="query-notation">
-          {{ probabilityNotation(st.project, active.targetIds) }}
+          {{
+            probabilityNotation(
+              st.project,
+              active.targetIds,
+              active.evidence ?? {},
+            )
+          }}
         </p>
         <p v-else>
           Evidence:
-          {{ evidenceTerms(st.project, st.project.evidence) || "None (prior)" }}
+          {{
+            evidenceTerms(st.project, active?.evidence ?? {}) || "None (prior)"
+          }}
         </p>
         <p v-if="queryError" class="query-blocker">{{ queryError }}</p>
       </div>
@@ -446,23 +393,6 @@ function exportGroup(kind: "json" | "csv") {
     >
       <template v-if="result && completedGroup">
         <div class="results-toolbar">
-          <label v-if="completedGroups.length > 1">
-            Query
-            <select
-              :value="completedGroup.id"
-              @change="
-                activeGroupId = ($event.target as HTMLSelectElement).value
-              "
-            >
-              <option
-                v-for="group in completedGroups"
-                :key="group.id"
-                :value="group.id"
-              >
-                {{ group.name }}
-              </option>
-            </select>
-          </label>
           <span v-if="st.current" class="tiny muted">Current results</span>
           <button
             class="primary"
@@ -474,19 +404,20 @@ function exportGroup(kind: "json" | "csv") {
           <details class="result-exports">
             <summary>Export results</summary>
             <div class="result-actions">
-              <button @click="exportGroup('json')" :disabled="!st.current">
+              <button @click="exportGroup" :disabled="!st.current">
                 Export JSON
               </button>
-              <button @click="exportGroup('csv')" :disabled="!st.current">
-                Export CSV
-              </button>
             </div>
-            <SampleExport :group-id="completedGroup.id" />
+            <SampleExport
+              :key="completedGroup.id"
+              :group-id="completedGroup.id"
+            />
           </details>
         </div>
         <QueryResults
           :project="resultProject"
           :result="result"
+          :caption="probabilityNotation(resultProject, result.targetIds)"
           :current="st.current"
         />
       </template>

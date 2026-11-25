@@ -230,7 +230,7 @@ test("Graphviz renders escaped names, four-side ports and optional probability l
   p.variables[0].label = 'A "quoted" <script>alert(1)</script>';
   const dot = graphDot(p);
   expect(dot).toContain("n0:n -> n1:s");
-  expect(dot).toContain('\\"quoted\\"');
+  expect(dot).toContain("&quot;quoted&quot; &lt;script&gt;");
   const svg = await graphSvg(p);
   expect(svg).toContain("<svg");
   expect(svg).not.toContain("<script>");
@@ -239,7 +239,14 @@ test("Graphviz renders escaped names, four-side ports and optional probability l
   const probs = Object.fromEntries(
     p.variables.map((v) => [v.id, v.states.map(() => 1 / 3)]),
   );
-  expect(await graphSvg(p, probs)).toContain("33.333%");
+  const highlighted = await graphSvg(p, probs, "auto", {
+    targetIds: [p.variables[0].id],
+    colors: { evidence: "#ffedc7", target: "#dbeafe" },
+  });
+  expect(highlighted).toContain("33.333%");
+  expect(highlighted).toContain('font-weight="bold"');
+  expect(highlighted).toContain('fill="#dbeafe"');
+  expect(highlighted).toMatch(/<path[^>]+d="M[^"]*C/);
 });
 
 test("numeric samples satisfy all inclusive and strict threshold predicates", async () => {

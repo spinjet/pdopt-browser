@@ -10,8 +10,9 @@ import {
 import { useProject } from "./store";
 import { LIMITS } from "./domain";
 import { download } from "./files";
-import GraphExport from "./GraphExport.vue";
 import DataWorkspace from "./DataWorkspace.vue";
+import HelpPanel from "./HelpPanel.vue";
+import AboutPanel from "./AboutPanel.vue";
 import BuildWorkspace from "./BuildWorkspace.vue";
 import InferenceWorkspace from "./InferenceWorkspace.vue";
 const StudyWorkspace = defineAsyncComponent(
@@ -19,6 +20,12 @@ const StudyWorkspace = defineAsyncComponent(
 );
 const st = useProject(),
   openInput = ref<HTMLInputElement>();
+const helpOpen = ref(false);
+const helpWidth = ref(380);
+function closeHelp() {
+  helpOpen.value = false;
+  document.getElementById("help-toggle")?.focus();
+}
 const workspaceTabs = [
   { id: "data", label: "Data" },
   { id: "exploration", label: "Probabilistic Exploration" },
@@ -52,11 +59,9 @@ function selectWorkspace(id: WorkspaceTab) {
 }
 async function open(file: File | undefined) {
   if (!file) return;
-  if (file.size > LIMITS.fileBytes) {
-    st.error = "File exceeds 100 MiB.";
-    return;
-  }
   try {
+    if (file.size > LIMITS.fileBytes)
+      throw new Error("Project exceeds 100 MiB.");
     const text = new TextDecoder("utf-8", { fatal: true }).decode(
       await file.arrayBuffer(),
     );
@@ -73,7 +78,10 @@ function save() {
       st.savedProject(st.embedDataset),
     );
     st.dirty = false;
-    st.notice = "Project downloaded. Keep this file as your portable backup.";
+    st.notice =
+      st.dataset && st.embedDataset
+        ? "Project and dataset downloaded together."
+        : "Project downloaded.";
   } catch (e) {
     st.error = String(e);
   }
@@ -127,7 +135,15 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
         /><span v-if="st.dirty" title="Unsaved changes">●</span>
       </div>
       <nav aria-label="Project actions">
-        <GraphExport />
+        <AboutPanel />
+        <button
+          id="help-toggle"
+          aria-controls="help-panel"
+          :aria-expanded="helpOpen"
+          @click="helpOpen = !helpOpen"
+        >
+          Help/Tutorial
+        </button>
         <button @click="st.newProject()" :disabled="st.busy">New</button
         ><button @click="openInput?.click()" :disabled="st.busy">Open</button
         ><button @click="save">Save project</button>
@@ -170,43 +186,57 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
     <div v-if="st.busy" class="banner working" role="status">
       Computing locally…<button @click="st.cancel()">Cancel computation</button>
     </div>
-    <DataWorkspace />
     <div
-      id="exploration-panel"
-      v-show="workspaceTab === 'exploration'"
-      role="tabpanel"
-      aria-labelledby="exploration-tab"
+      class="workspace-body"
+      :class="{ 'with-help': helpOpen }"
+      :style="{ '--help-width': helpWidth + 'px' }"
     >
-      <div
-        class="view-switch exploration-views"
-        role="tablist"
-        aria-label="Exploration views"
-        @keydown="
-          tabKeys(
-            $event,
-            explorationTabs,
-            st.activeTab,
-            (id) => (st.activeTab = id),
-          )
-        "
-      >
-        <button
-          v-for="tab in explorationTabs"
-          :id="tab.id + '-tab'"
-          :key="tab.id"
-          role="tab"
-          :aria-controls="tab.id + '-panel'"
-          :aria-selected="st.activeTab === tab.id"
-          :tabindex="st.activeTab === tab.id ? 0 : -1"
-          @click="st.activeTab = tab.id"
+      <div class="workspace-stage">
+        <DataWorkspace />
+        <div
+          id="exploration-panel"
+          v-show="workspaceTab === 'exploration'"
+          role="tabpanel"
+          aria-labelledby="exploration-tab"
         >
-          {{ tab.label }}
-        </button>
+          <div
+            class="view-switch exploration-views"
+            role="tablist"
+            aria-label="Exploration views"
+            @keydown="
+              tabKeys(
+                $event,
+                explorationTabs,
+                st.activeTab,
+                (id) => (st.activeTab = id),
+              )
+            "
+          >
+            <button
+              v-for="tab in explorationTabs"
+              :id="tab.id + '-tab'"
+              :key="tab.id"
+              role="tab"
+              :aria-controls="tab.id + '-panel'"
+              :aria-selected="st.activeTab === tab.id"
+              :tabindex="st.activeTab === tab.id ? 0 : -1"
+              @click="st.activeTab = tab.id"
+            >
+              {{ tab.label }}
+            </button>
+          </div>
+          <BuildWorkspace />
+          <InferenceWorkspace />
+        </div>
+        <StudyWorkspace v-if="st.activeTab === 'study' || st.project.study" />
       </div>
-      <BuildWorkspace />
-      <InferenceWorkspace />
+      <HelpPanel
+        v-show="helpOpen"
+        :tab="st.activeTab"
+        v-model:width="helpWidth"
+        @close="closeHelp"
+      />
     </div>
-    <StudyWorkspace v-if="st.activeTab === 'study' || st.project.study" />
     <footer>
       PDOPT · Browser version<span>(c) Andrea Spinelli 2023-2026</span>
     </footer>

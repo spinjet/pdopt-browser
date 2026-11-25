@@ -134,19 +134,43 @@ test("four-side connections, exact numeric events, image and dependent sample do
     value: 7,
   });
   expect(strFromU8(zip["samples.csv"]).split("\r\n")).toHaveLength(101);
-  await page.getByText("Export network image", { exact: true }).click();
-  await page.getByLabel("Include current probabilities").check();
+  await page
+    .getByRole("button", { name: "Network graph", exact: true })
+    .click();
+  await graph
+    .getByRole("button", { name: "Export network image", exact: true })
+    .click();
+  const exportDialog = page.getByRole("dialog", {
+    name: "Export network image",
+  });
+  const preview = exportDialog.getByRole("img", {
+    name: "Preview of the exported network image",
+  });
+  await expect(preview).toBeVisible();
+  await exportDialog.getByLabel("Evidence nodes").fill("#ffd480");
+  await exportDialog.getByLabel("Query target nodes").fill("#94d5f5");
   const svgPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Download network image" }).click();
   const svg = await readFile((await (await svgPromise).path())!, "utf8");
   expect(svg).toContain("<svg");
   expect(svg).toContain("%");
+  expect(svg).toContain('fill="#ffd480"');
+  expect(svg).toContain('fill="#94d5f5"');
+  expect(svg).toContain('font-weight="bold"');
+  expect(
+    decodeURIComponent((await preview.getAttribute("src"))!.split(",")[1]),
+  ).toBe(svg);
   expect(svg).not.toContain("__event_");
-  await page.getByLabel("Image format", { exact: true }).selectOption("png");
+  await page
+    .getByRole("combobox", { name: "Image format", exact: true })
+    .selectOption("png");
   const pngPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Download network image" }).click();
   const png = await readFile((await (await pngPromise).path())!);
   expect([...png.subarray(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
+  await exportDialog
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
   const savePromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Save project", exact: true }).click();
   const saved = JSON.parse(
@@ -246,16 +270,9 @@ for (const operation of ["graph", "sample"] as const)
       await barrier;
       await route.continue().catch(() => {});
     });
-    if (operation === "sample")
-      await page.getByText("Export results", { exact: true }).click();
-    await page
-      .getByText(
-        operation === "graph"
-          ? "Export network image"
-          : "Sample queried distribution",
-        { exact: true },
-      )
-      .click();
+    const exportDialog = page.getByRole("dialog", {
+      name: "Export network image",
+    });
     const button = page.getByRole("button", {
       name:
         operation === "graph"
@@ -263,26 +280,44 @@ for (const operation of ["graph", "sample"] as const)
           : "Download samples ZIP",
       exact: true,
     });
-    await button.click();
+    if (operation === "graph") {
+      await page
+        .getByRole("button", { name: "Network graph", exact: true })
+        .click();
+      await page
+        .getByRole("button", { name: "Export network image", exact: true })
+        .click();
+    } else {
+      await page.getByText("Export results", { exact: true }).click();
+      await page
+        .getByText("Sample queried distribution", { exact: true })
+        .click();
+      await button.click();
+    }
     await requested;
     if (operation === "graph")
-      await page
+      await exportDialog
         .getByRole("button", { name: "Cancel computation", exact: true })
         .click();
     else {
       await openExploration(page, "Queries");
       await page
-        .getByRole("group", { name: "Shared evidence", exact: true })
+        .getByRole("group", { name: "Query evidence", exact: true })
         .getByRole("combobox", { name: "Load", exact: true })
         .selectOption({ label: "High" });
     }
     release();
-    await expect(page.getByRole("alert")).toContainText(
+    const error = (operation === "graph" ? exportDialog : page).getByRole(
+      "alert",
+    );
+    await expect(error).toContainText(
       operation === "graph" ? "cancelled" : "outdated",
     );
     await page.unroute(pattern);
     await expect(page.locator("#results-panel .network-node")).toHaveCount(3);
     if (operation === "sample") await run(page);
+    else
+      await exportDialog.getByRole("button", { name: "Retry preview" }).click();
     const download = page.waitForEvent("download");
     await button.click();
     expect((await download).suggestedFilename()).toBe(
@@ -360,7 +395,10 @@ test("auto layout and export use vertical hierarchy for bottom/top connections",
   const [parentNode, childNode] = saved.variables;
   expect(parentNode.position.y).toBeLessThan(childNode.position.y);
   expect(parentNode.position.x).toBe(childNode.position.x);
-  await page.getByText("Export network image", { exact: true }).click();
+  await page
+    .getByRole("region", { name: "Network editor" })
+    .getByRole("button", { name: "Export network image", exact: true })
+    .click();
   const direction = page.getByRole("combobox", {
     name: "Layout direction",
     exact: true,

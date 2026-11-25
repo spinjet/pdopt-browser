@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { test, expect, type Page } from "@playwright/test";
 import { openDiscreteFixture, openExploration } from "./fixtures";
 const base = process.env.TEST_PATH || "/";
@@ -28,7 +29,7 @@ async function failureTarget(page: Page) {
   await targets.getByLabel("Load", { exact: true }).uncheck();
   await targets.getByLabel("Failure", { exact: true }).check();
 }
-test("CSV → build → training → shared evidence → posterior → save/open → corrupt file", async ({
+test("CSV → build → training → query evidence → posterior → save/open → corrupt file", async ({
   page,
 }) => {
   const errors: string[] = [],
@@ -83,7 +84,7 @@ test("CSV → build → training → shared evidence → posterior → save/open
   await openExploration(page, "Queries");
   await failureTarget(page);
   const evidence = page.getByRole("group", {
-    name: "Shared evidence",
+    name: "Query evidence",
     exact: true,
   });
   await evidence
@@ -98,6 +99,26 @@ test("CSV → build → training → shared evidence → posterior → save/open
   ).toBeVisible();
   await expect(page.locator(".marginal-table")).toContainText("75.000%");
   await page
+    .getByRole("button", { name: "Export figure", exact: true })
+    .click();
+  const figure = page.getByRole("dialog", { name: "Export query figure" });
+  await figure.getByLabel("Figure format").selectOption("png");
+  await figure.getByLabel("Width (mm)").fill("100");
+  await figure.getByLabel("Resolution").selectOption("600");
+  await figure
+    .getByRole("combobox", { name: "Caption", exact: true })
+    .selectOption("none");
+  const pngDownload = page.waitForEvent("download");
+  await figure.getByRole("button", { name: "Download PNG" }).click();
+  const png = await readFile((await (await pngDownload).path())!);
+  expect(png.toString("ascii", 12, 16)).toBe("IHDR");
+  expect(png.readUInt32BE(16)).toBe(Math.round((100 / 25.4) * 600));
+  expect(png.toString("ascii", 37, 41)).toBe("pHYs");
+  expect(png.readUInt32BE(41)).toBe(Math.round(600 / 0.0254));
+  expect(png.readUInt32BE(45)).toBe(Math.round(600 / 0.0254));
+  expect(png[49]).toBe(1);
+  await figure.getByRole("button", { name: "Close", exact: true }).click();
+  await page
     .getByRole("button", { name: "Network graph", exact: true })
     .click();
   await expect(page.locator(".probability-node")).toHaveCount(3);
@@ -105,7 +126,9 @@ test("CSV → build → training → shared evidence → posterior → save/open
   await page.getByRole("button", { name: "Save project", exact: true }).click();
   const file = await download;
   await page.getByTestId("project-file").setInputFiles((await file.path())!);
-  await expect(page.getByText("Source not attached")).toBeVisible();
+  await expect(
+    page.getByText("Source attached", { exact: true }),
+  ).toBeVisible();
   await openExploration(page, "Queries");
   await page.getByRole("button", { name: "Run query", exact: true }).click();
   await expect(
@@ -237,7 +260,7 @@ test("numeric cuts, precision-only edits, missing rows and exact-boundary eviden
   await page.getByRole("button", { name: "Map value" }).click();
   await expect(
     page
-      .getByRole("group", { name: "Shared evidence", exact: true })
+      .getByRole("group", { name: "Query evidence", exact: true })
       .getByRole("combobox", { name: "Temperature", exact: true }),
   ).toHaveValue("1");
   await page.getByRole("button", { name: "Run query", exact: true }).click();

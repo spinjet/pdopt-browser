@@ -9,7 +9,6 @@ import StudyParallel from "./StudyParallel.vue";
 
 const props = defineProps<{ study: Study; run: StudyRun; dataset?: Dataset }>();
 const view = ref<"pareto" | "parallel" | "table">("pareto");
-const mode = ref<"predicted" | "verified">("predicted");
 const suboptimal = ref(false),
   samples = ref(false),
   floating = ref(false);
@@ -65,20 +64,20 @@ const margins = computed(() =>
   ),
 );
 const feasible = computed(() =>
-  props.run.designs.filter((d) => d[mode.value]?.feasible),
+  props.run.designs.filter((d) => d.predicted.feasible),
 );
 const frontCount = computed(
-  () => feasible.value.filter((d) => d[mode.value]?.pareto).length,
+  () => feasible.value.filter((d) => d.predicted.pareto).length,
 );
 const plotted = computed(() =>
-  feasible.value.filter((d) => suboptimal.value || d[mode.value]?.pareto),
+  feasible.value.filter((d) => suboptimal.value || d.predicted.pareto),
 );
 const valuesById = computed(
   () =>
     new Map(
       feasible.value.map((d) => [
         d.id,
-        { ...d.inputs, ...d[mode.value]!.outputs },
+        { ...d.inputs, ...d.predicted.outputs },
       ]),
     ),
 );
@@ -111,7 +110,7 @@ const points = computed<PlotPoint[]>(() => [
   ...plotted.value.map((d) => ({
     id: d.id,
     values: valuesById.value.get(d.id)!,
-    pareto: d[mode.value]!.pareto,
+    pareto: d.predicted.pareto,
   })),
 ]);
 const highlight = computed(
@@ -175,13 +174,13 @@ function exportSelection() {
   const rows = selected.map((d) => [
     d.id,
     d.region + 1,
-    mode.value,
-    d[mode.value]!.pareto ? 1 : 0,
+    "predicted",
+    d.predicted.pareto ? 1 : 0,
     ...axes.value.map((a) => valuesById.value.get(d.id)![a.id]),
-    ...margins.value.map((a) => d[mode.value]!.margins[a.id]),
+    ...margins.value.map((a) => d.predicted.margins[a.id]),
   ]);
   download(
-    "study-" + mode.value + "-designs.csv",
+    "study-predicted-designs.csv",
     [headers, ...rows]
       .map((row) => row.map((v) => csvCell(v ?? "")).join(","))
       .join("\r\n"),
@@ -238,13 +237,7 @@ function dragMove(event: PointerEvent) {
           Design table
         </button>
       </div>
-      <label
-        >Evaluation
-        <select v-model="mode" @change="page = 0">
-          <option value="predicted">Predicted</option>
-          <option v-if="run.verified" value="verified">Verified</option>
-        </select>
-      </label>
+      <span>Surrogate predictions</span>
       <label class="check"
         ><input
           type="checkbox"
@@ -287,7 +280,7 @@ function dragMove(event: PointerEvent) {
       </button>
     </div>
     <p v-if="!feasible.length" class="study-empty">
-      The search found no {{ mode }} feasible designs in these regions.
+      The search found no predicted feasible designs in these regions.
     </p>
     <p v-if="samples" class="tiny muted">
       Sampled rows appear in grey. {{ observed.length.toLocaleString() }} rows
@@ -405,16 +398,16 @@ function dragMove(event: PointerEvent) {
                 <button @click="select([d.id])">{{ d.id }}</button>
               </th>
               <td>{{ d.region + 1 }}</td>
-              <td>{{ mode }}{{ d[mode]?.pareto ? " · Pareto" : "" }}</td>
+              <td>Predicted{{ d.predicted.pareto ? " · Pareto" : "" }}</td>
               <td v-for="axis in axes" :key="axis.id">
                 {{ valuesById.get(d.id)?.[axis.id] ?? "—" }}
               </td>
               <td
                 v-for="axis in margins"
                 :key="axis.id"
-                :title="String(d[mode]?.margins[axis.id])"
+                :title="String(d.predicted.margins[axis.id])"
               >
-                {{ displayValue(d[mode]?.margins[axis.id]) }}
+                {{ displayValue(d.predicted.margins[axis.id]) }}
               </td>
             </tr>
           </tbody>

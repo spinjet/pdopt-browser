@@ -12,6 +12,7 @@ import {
   cptSchema,
   evidenceSchema,
   type Project,
+  type QueryGroup,
   type Dataset,
   LIMITS,
   thresholdCut,
@@ -44,7 +45,11 @@ export const useProject = defineStore("project", () => {
   const activeTab = ref<
       "data" | "network" | "states" | "queries" | "results" | "study"
     >("data"),
-    embedDataset = ref(false);
+    embedDataset = ref(true);
+  const activeGroupId = ref("");
+  const activeQuery = computed(() =>
+    project.value.queryGroups.find((group) => group.id === activeGroupId.value),
+  );
   const resultSnapshot = ref<Project>();
   const trainingPreview = ref<{
     retained: number;
@@ -123,6 +128,8 @@ export const useProject = defineStore("project", () => {
     };
     project.value = p;
     dataset.value = d;
+    embedDataset.value = true;
+    trainingPreview.value = undefined;
     selected.value = "";
     results.value = undefined;
     resultSnapshot.value = undefined;
@@ -234,7 +241,7 @@ export const useProject = defineStore("project", () => {
         v.representation !== previousVariable.representation ||
         JSON.stringify(v.states) !== JSON.stringify(previousVariable.states)
       )
-        clearSavedEvidenceFor(v.id, v.representation !== "categorical");
+        clearQueryEvidenceFor(v.id, v.representation !== "categorical");
       project.value.variables[old] = v;
       const previous = project.value.evidence[v.id];
       if (
@@ -250,6 +257,7 @@ export const useProject = defineStore("project", () => {
           id: crypto.randomUUID(),
           name: v.label.trim().slice(0, 100) || "Query 1",
           targetIds: [v.id],
+          evidence: {},
         });
     }
     if (selected.value === selectedAtStart) selected.value = v.id;
@@ -282,6 +290,7 @@ export const useProject = defineStore("project", () => {
         id: crypto.randomUUID(),
         name: variable.label.slice(0, 100),
         targetIds: [id],
+        evidence: {},
       });
     selected.value = id;
     touch();
@@ -311,7 +320,7 @@ export const useProject = defineStore("project", () => {
       variable.states = states;
       variable.stateLabels = [...states];
       delete project.value.evidence[id];
-      clearSavedEvidenceFor(id);
+      clearQueryEvidenceFor(id);
       touch();
     }
     error.value = "";
@@ -349,17 +358,20 @@ export const useProject = defineStore("project", () => {
       touch();
     }
   }
-  function addGroup() {
+  function addGroup(source?: QueryGroup) {
     if (project.value.queryGroups.length >= 10) {
       error.value = "Use at most 10 query groups.";
       return;
     }
     const g = {
       id: crypto.randomUUID(),
-      name: `Query ${project.value.queryGroups.length + 1}`,
-      targetIds: project.value.variables[0]
-        ? [project.value.variables[0].id]
-        : [],
+      name: source
+        ? `${source.name.slice(0, 93)} (copy)`
+        : `Query ${project.value.queryGroups.length + 1}`,
+      targetIds: source
+        ? [...source.targetIds]
+        : project.value.variables.slice(0, 1).map((v) => v.id),
+      evidence: evidenceSchema.parse(source?.evidence ?? {}),
     };
     project.value.queryGroups.push(g);
     touch("query");
@@ -418,7 +430,7 @@ export const useProject = defineStore("project", () => {
     );
     project.value.cpts = project.value.cpts.filter((c) => c.variableId !== id);
     delete project.value.evidence[id];
-    clearSavedEvidenceFor(id);
+    clearQueryEvidenceFor(id);
     for (const group of project.value.queryGroups)
       group.targetIds = group.targetIds.filter((x) => x !== id);
     selected.value = "";
@@ -456,14 +468,20 @@ export const useProject = defineStore("project", () => {
       trainingPreview.value.stamp = trainingStamp();
     notice.value = `Trained ${r.cpts.length} CPTs from ${r.retained} rows; ${r.dropped} excluded.`;
   }
-  async function query() {
+  async function query(group: QueryGroup) {
     const { study: _study, ...model } = project.value;
-    const snapshot = JSON.parse(JSON.stringify(model)) as Project;
+    const snapshot = JSON.parse(
+      JSON.stringify({
+        ...model,
+        evidence: group.evidence ?? {},
+        queryGroups: [group],
+      }),
+    ) as Project;
+    if (snapshot.dataset) delete snapshot.dataset.embeddedCsv;
     const r = await job(
       "infer",
       {
-        ...payload(),
-        dataset: undefined,
+        project: snapshot,
         engineUrl: new URL(
           `${import.meta.env.BASE_URL}vendor/jsagrum/dist/index.js`,
           location.origin,
@@ -507,8 +525,15 @@ export const useProject = defineStore("project", () => {
       if (new TextEncoder().encode(text).length > LIMITS.fileBytes)
         throw new Error("Project exceeds 100 MiB.");
       const p = validateProject(JSON.parse(text));
+      for (const group of p.queryGroups) {
+        group.evidence = evidenceSchema.parse(
+          group.evidence ?? group.savedEvidence ?? p.evidence,
+        );
+        delete group.savedEvidence;
+      }
+      p.evidence = {};
       let d: Dataset | undefined;
-      if (p.dataset?.embeddedCsv) {
+      if (p.dataset?.embeddedCsv !== undefined) {
         const descriptor = p.dataset;
         d = await job(
           "import",
@@ -523,12 +548,15 @@ export const useProject = defineStore("project", () => {
         if (!d) return;
         if (d.hash !== descriptor.hash)
           throw new Error("Embedded dataset hash does not match.");
+        delete descriptor.embeddedCsv;
       }
       if (dirty.value && !confirm("Replace unsaved work with this project?"))
         return;
       client.cancel();
       project.value = p;
-      activeTab.value = p.variables.length ? "network" : "data";
+      activeTab.value =
+        p.variables.length && (!p.dataset || d) ? "network" : "data";
+      embedDataset.value = true;
       dataset.value = d;
       results.value = undefined;
       resultSnapshot.value = undefined;
@@ -539,7 +567,9 @@ export const useProject = defineStore("project", () => {
       dirty.value = false;
       notice.value = d
         ? "Project and dataset opened."
-        : "Project opened. Reattach its CSV to retrain; saved CPTs can be queried.";
+        : p.dataset
+          ? "Project opened. Locate its CSV in Data to retrain."
+          : "Project opened.";
       error.value = "";
     } catch (e) {
       error.value = `Could not open project: ${e instanceof Error ? e.message : e}`;
@@ -551,7 +581,14 @@ export const useProject = defineStore("project", () => {
       delete p.dataset.embeddedCsv;
       if (embed && dataset.value) p.dataset.embeddedCsv = dataset.value.csv;
     }
-    return JSON.stringify(validateProject(p), null, 2);
+    const text = JSON.stringify(validateProject(p), null, 2);
+    if (new Blob([text]).size > LIMITS.fileBytes)
+      throw new Error(
+        embed && dataset.value
+          ? "Project exceeds 100 MiB with the CSV. Download the CSV separately and turn off embedding in Data settings."
+          : "Project exceeds 100 MiB.",
+      );
+    return text;
   }
   function newProject() {
     if (
@@ -562,6 +599,7 @@ export const useProject = defineStore("project", () => {
     client.cancel();
     activeTab.value = "data";
     project.value = emptyProject();
+    embedDataset.value = true;
     dataset.value = undefined;
     results.value = undefined;
     resultSnapshot.value = undefined;
@@ -595,45 +633,36 @@ export const useProject = defineStore("project", () => {
     }
   }
   function setEvidence(id: string, value: EvidenceValue | undefined) {
-    if (value === undefined) delete project.value.evidence[id];
-    else project.value.evidence[id] = value;
+    const group = activeQuery.value;
+    if (!group) return;
+    const evidence = group.evidence ?? (group.evidence = {});
+    if (value === undefined) delete evidence[id];
+    else evidence[id] = value;
     touch("query");
   }
-  function clearSavedEvidenceFor(id: string, keepThresholds = false) {
+  function clearEvidence() {
+    if (!activeQuery.value) return;
+    activeQuery.value.evidence = {};
+    touch("query");
+  }
+  function clearQueryEvidenceFor(id: string, keepThresholds = false) {
     for (const group of project.value.queryGroups) {
-      const value = group.savedEvidence?.[id];
-      if (value === undefined) continue;
+      const evidence = group.evidence;
+      const value = evidence?.[id];
+      if (!evidence || value === undefined) continue;
       if (
         keepThresholds &&
         typeof value === "object" &&
         value.kind === "threshold"
       )
         continue;
-      delete group.savedEvidence;
+      delete evidence[id];
     }
-  }
-  function saveQueryEvidence(id: string) {
-    const group = project.value.queryGroups.find((g) => g.id === id);
-    if (!group || busy.value) return;
-    group.savedEvidence = evidenceSchema.parse(project.value.evidence);
-    touch("display");
-    notice.value = `Evidence saved with “${group.name}”.`;
-  }
-  function applyQueryEvidence(id: string) {
-    const group = project.value.queryGroups.find((g) => g.id === id);
-    if (!group?.savedEvidence || busy.value) return;
-    const evidence = evidenceSchema.parse(group.savedEvidence);
-    if (JSON.stringify(evidence) !== JSON.stringify(project.value.evidence)) {
-      project.value.evidence = evidence;
-      touch("query");
-    }
-    error.value = "";
-    notice.value = `Applied saved evidence from “${group.name}”.`;
   }
   async function addThresholdCut(id: string) {
     try {
       const v = project.value.variables.find((v) => v.id === id),
-        e = project.value.evidence[id];
+        e = activeQuery.value?.evidence?.[id];
       if (!v?.binning || typeof e !== "object" || e.kind !== "threshold")
         return;
       if (!dataset.value) {
@@ -664,20 +693,27 @@ export const useProject = defineStore("project", () => {
 
   async function exportGraph(
     withProbabilities: boolean,
-    direction: import("./graph-export").GraphDirection = "auto",
+    direction: import("./graph-export").GraphDirection,
+    colors: import("./graph-export").GraphRoleColors,
   ) {
     if (withProbabilities && !current.value) {
       error.value =
         "Run inference for current probabilities before exporting them.";
       return;
     }
+    const group = withProbabilities
+      ? resultSnapshot.value!.queryGroups[0]
+      : activeQuery.value;
     return await job(
       "graph",
       {
-        project: project.value,
+        project: withProbabilities
+          ? { ...project.value, evidence: resultSnapshot.value!.evidence }
+          : { ...project.value, evidence: activeQuery.value?.evidence ?? {} },
         options: {
           posterior: withProbabilities ? results.value!.posterior : undefined,
           direction,
+          highlights: { colors, targetIds: group?.targetIds ?? [] },
         },
       },
       (x) => z.object({ svg: z.string() }).parse(x),
@@ -694,7 +730,7 @@ export const useProject = defineStore("project", () => {
     return await job(
       "sample",
       {
-        project: project.value,
+        project: resultSnapshot.value,
         options: { ...options, groupId, joint: results.value.groups[groupId] },
       },
       (x) =>
@@ -708,8 +744,9 @@ export const useProject = defineStore("project", () => {
   }
   return {
     setEvidence,
-    saveQueryEvidence,
-    applyQueryEvidence,
+    clearEvidence,
+    activeGroupId,
+    activeQuery,
     addThresholdCut,
     exportGraph,
     exportSamples,

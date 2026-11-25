@@ -32,7 +32,7 @@ for (const operation of ["cancel", "stale"] as const)
       await page.getByRole("button", { name: "Cancel computation" }).click();
     else
       await page
-        .getByRole("group", { name: "Shared evidence" })
+        .getByRole("group", { name: "Query evidence" })
         .getByRole("combobox", { name: "Load", exact: true })
         .selectOption({ label: "High" });
     release();

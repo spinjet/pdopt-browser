@@ -34,4 +34,4 @@ Heap figures are sampled V8 usage from Chromium DevTools. Timing is from one loc
 | Synthetic missed mass violations out of 969 |         64 |                     30 |
 | Synthetic missed failures out of 522        |        117 |                     70 |
 
-The JavaScript model had the lower mass error and missed fewer violations on the beam pilot, with lower startup and memory costs. Scikit-learn improved every synthetic response on the larger study, where it used the full training split. The Run view exposes fitted row counts and missed violations so engineers can judge the chosen model for their data. The verified cantilever front is recomputed with the beam equations.
+The JavaScript model had the lower mass error and missed fewer violations on the beam pilot, with lower startup and memory costs. Scikit-learn improved every synthetic response on the larger study, where it used the full training split. The Run view exposes fitted row counts and missed violations so engineers can judge the chosen model for their data.

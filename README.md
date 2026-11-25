@@ -29,7 +29,7 @@ Empty fields are missing initially; strings such as `NA` remain categories unles
 
 ## Cantilever beam example
 
-In a new project, click **Load cantilever beam example**. Open **Cantilever tutorial** in the Data tab for the sizing problem, equations, and a walkthrough. A seeded Latin hypercube produces 512 cases across width and depth (10–50 mm each), tip load (50–200 N), and material. The fourth sampling axis is split into equal thirds for steel, aluminium, and titanium. Each case uses one material. The span is fixed at 500 mm. [Latin hypercube sampling reference](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.qmc.LatinHypercube.html)
+In a new project, click **Load cantilever beam example**. Open **Help/Tutorial** for the sizing problem, equations, and a walkthrough. A seeded Latin hypercube produces 512 cases across width and depth (10–50 mm each), tip load (50–200 N), and material. The fourth sampling axis is split into equal thirds for steel, aluminium, and titanium. Each case uses one material. The span is fixed at 500 mm. [Latin hypercube sampling reference](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.qmc.LatinHypercube.html)
 
 The dataset uses linear elastic beam theory with a fixed root and a point load at the free end. With section inertia I = bh³/12, it calculates root bending stress FL(h/2)/I and tip deflection FL³/(3EI). The **Failure** node marks a case as **Fails** when stress exceeds the material’s assumed tutorial allowable (45 MPa for steel, 35 MPa for aluminium, or 55 MPa for titanium). It marks other cases **Passes** for this bending stress check. [Penn State machine design notes](https://www.me.psu.edu/sommer/me360/n04_review.pdf)
 
@@ -39,8 +39,8 @@ Open **States & training** and click **Train model**. The seeded sample covers e
 
 ## Queries and Results
 
-1. In **Queries**, assign a single state, an allowed-state set, or a numeric threshold. Numeric observations map through the saved cuts. All query groups share this evidence.
-2. Create named queries, choose their targets, and reorder the targets using the arrow buttons. The summary shows **P ( query variables | evidence )** alongside the query name. **Save evidence with query** stores a copy of the active evidence with the selected query in the project file. **Apply saved evidence** restores it as the shared evidence for the next run. **Run query** updates every group and opens **Results**. **Edit query** returns to your selections.
+1. In **Queries**, choose the targets and evidence for each named query. Evidence can be a single state, an allowed-state set, or a numeric threshold. Numeric observations map through the saved cuts.
+2. **Duplicate query** copies the selected targets and evidence for independent editing. The summary shows **P ( query variables | evidence )**. **Run query** evaluates the selected query and opens its result. **Edit query** returns to the query that produced it.
 3. Switch between **Network graph** for individual probabilities at each node and **Query results** for diagrams and tables. One target shows prior and posterior bars. For joint queries, the heatmap shows two axes. Select a state for each additional target to view a slice. The scale stays fixed to the full distribution.
 4. Hover, focus or tap a heatmap cell to see its probability. Use arrow keys to move between cells. **Show values** displays all cell values. The **Table** view supports sorting, pagination and state filtering for joint queries.
 
@@ -48,11 +48,19 @@ Joint probabilities are computed exactly through conditional inference, not mult
 
 ## Save, reopen and export
 
-**Save project** downloads schema-version-3 JSON. Old version-1 and version-2 projects migrate automatically, preserving learned probabilities, cuts, evidence and positions, and creating individual query views for their previous targets. Legacy files with more than 10 targets retain all views but require removing surplus groups before inference.
+**Save project** downloads schema-version-3 JSON. Old version-1 and version-2 projects migrate automatically, preserving learned probabilities, cuts, evidence and positions, and creating individual query views for their previous targets. Older queries use their saved evidence where available and otherwise inherit the previous shared evidence.
 
-CSV embedding is off by default. Saved CPTs remain queryable without raw data; reattach the exact matching CSV in Data to retrain CSV-backed variables. Opting into embedding includes the entire source CSV. Project files and exports contain model parameters and labels, which may be sensitive. There is no recovery database, telemetry, account or upload endpoint.
+The project file includes the current CSV by default, including columns added in Data. To save without the CSV, turn off embedding in **Data settings**. **Locate project CSV** checks the file against the saved dataset hash before attaching it to a project. Saved CPTs remain queryable while the data is detached.
 
-Export the selected query as JSON/CSV. Exports retain target/state order, original source values and display labels, evidence, training provenance, fitted thresholds and full-precision probabilities. Keep project downloads as portable backups.
+Export the selected query as JSON. It retains target/state order, original source values and display labels, evidence, training provenance, fitted thresholds and full-precision probabilities. Keep project downloads as portable backups.
+
+Use **Export table CSV** in the Table view to download the displayed columns and all rows matching the current filters. Probabilities are numeric fractions and the CSV can be loaded with pandas.
+
+Use **Export figure** in the diagram for a vector SVG or a 300 or 600 dpi PNG. The preview uses the specified figure width. Heatmap exports include all cells in the selected slice and show a vertical probability scale. Choose a colour scheme, a query or custom caption, and which slice labels to show. Single-variable figures show prior and posterior bars.
+
+Use **Export network image** beside the graph in **Network** or **Results → Network graph** to preview the layout and download SVG or PNG. The Results export includes node probabilities and highlights evidence and query targets with editable colours.
+
+Open **Help/Tutorial** to keep the instructions beside the workspace while you work. **Help for this view** follows the active tab. Edit **About** in [src/content/about.md](src/content/about.md).
 
 ## Checks and hosting
 
@@ -82,7 +90,7 @@ Development continues on `prototype/browser-bayesnet`; `main` and the original P
 
 ## Events, graph images and sampling (0.3)
 
-Expand **Multiple states / numeric threshold** in Shared evidence to select several allowed states (OR within one variable, AND across variables). Numeric predicates support ≥, >, < and ≤. For discretised variables an exact cut is required; a threshold splitting a bin blocks inference. **Add exact cut & retrain** preserves the predicate, adds the boundary, and invalidates affected CPTs. Reattach the source CSV if necessary. Cuts enter the upper bin; > and ≤ use the next representable IEEE-754 number so equality is handled exactly, without snapping or fractional-bin assumptions. Finite numeric states compare their actual values directly.
+Expand **Multiple states / numeric threshold** in Query evidence to select several allowed states (OR within one variable, AND across variables). Numeric predicates support ≥, >, < and ≤. For discretised variables an exact cut is required; a threshold splitting a bin blocks inference. **Add exact cut & retrain** preserves the predicate, adds the boundary, and invalidates affected CPTs. Reattach the source CSV if necessary. Cuts enter the upper bin; > and ≤ use the next representable IEEE-754 number so equality is handled exactly, without snapping or fractional-bin assumptions. Finite numeric states compare their actual values directly.
 
 Set-valued evidence is computed exactly through disposable deterministic indicator leaves inside the inference worker. These leaves never appear in the model, saved file or images. Unresolved predicates can be saved as drafts. Impossible evidence preserves previous results as outdated.
 

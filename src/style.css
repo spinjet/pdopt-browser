@@ -546,9 +546,7 @@ td {
 .raw-data-range select {
   width: auto;
 }
-.cantilever-tutorial {
-  width: min(48rem, calc(100vw - 32px));
-}
+
 .tutorial-content {
   min-height: 0;
   overflow: auto;
@@ -1147,32 +1145,6 @@ footer {
   min-height: 100dvh;
 }
 
-.image-export {
-  position: relative;
-}
-.image-export > summary {
-  padding: 10px 12px;
-  border: 1px solid #c5d3dc;
-  border-radius: 6px;
-  white-space: nowrap;
-}
-.image-export-panel {
-  position: absolute;
-  z-index: 100;
-  top: calc(100% + 8px);
-  right: 0;
-  width: min(320px, 85vw);
-  background: white;
-  padding: 16px;
-  border: 1px solid #c5d3dc;
-  border-radius: 8px;
-  box-shadow: 0 8px 28px #21374726;
-  display: grid;
-  gap: 12px;
-}
-.image-export-panel .check input {
-  width: auto;
-}
 .topbar nav {
   align-items: center;
 }
@@ -1252,12 +1224,6 @@ footer {
   border-top: 1px solid #dce3e7;
 }
 .query-notation,
-.saved-query-evidence p {
-  overflow-wrap: anywhere;
-}
-.saved-query-evidence {
-  margin: 12px 0;
-}
 .query-run > button,
 .results-heading > button {
   flex-shrink: 0;
@@ -1268,18 +1234,18 @@ footer {
 }
 .results-workspace {
   display: flex;
+  flex: 1;
   flex-direction: column;
   min-width: 0;
-  min-height: min(620px, calc(100dvh - 140px));
   background: white;
 }
 .results-workspace .probability-graph {
   flex: 1;
-  min-height: 440px;
+  height: auto;
   border-right: 0;
 }
 .results-workspace .graph-wrap {
-  flex: 1;
+  min-height: 220px;
 }
 .results-content {
   padding: 10px 20px 16px;
@@ -1824,4 +1790,144 @@ footer {
     border-top: 1px solid #dce5eb;
     max-height: none;
   }
+}
+
+.workspace-body,
+.workspace-stage {
+  min-width: 0;
+}
+.workspace-body {
+  display: grid;
+  flex: 1;
+}
+.workspace-stage,
+#exploration-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.workspace-stage {
+  align-self: stretch;
+}
+#exploration-panel {
+  flex: 1;
+}
+.help-panel {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  height: min(100dvh, 900px);
+  min-width: 0;
+  border-inline-start: 1px solid #ccd6dc;
+  background: white;
+}
+.help-panel-header,
+.help-panel-options {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid #dce3e7;
+}
+.help-panel-options .field {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+.help-panel .tutorial-content {
+  flex: 1;
+  overflow-wrap: anywhere;
+  overscroll-behavior: contain;
+}
+.help-panel .tutorial-content > h2 {
+  margin-top: 16px;
+}
+.help-width input {
+  width: 100%;
+}
+@media (min-width: 1100px) {
+  .workspace-body.with-help {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) min(var(--help-width), 40vw);
+    align-items: start;
+  }
+}
+@media (max-width: 1099px) {
+  .workspace-body.with-help {
+    --help-drawer-height: 44dvh;
+    padding-bottom: var(--help-drawer-height);
+  }
+  .help-panel {
+    position: fixed;
+    inset: auto 0 0;
+    z-index: 90;
+    height: var(--help-drawer-height);
+    border: 0;
+    border-top: 1px solid #ccd6dc;
+    box-shadow: 0 -6px 20px #21374726;
+  }
+  .with-help .query-run {
+    bottom: var(--help-drawer-height);
+  }
+  .help-panel-options .help-width {
+    display: none;
+  }
+}
+.about-dialog {
+  width: min(44rem, calc(100vw - 32px));
+}
+.figure-dialog {
+  width: min(70rem, calc(100vw - 32px));
+}
+.figure-export-content {
+  padding: 16px;
+  overflow: auto;
+  min-height: 0;
+}
+.figure-export-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+}
+.figure-export-controls .field {
+  margin: 0;
+}
+.figure-export-controls .check {
+  align-self: center;
+}
+.figure-preview {
+  overflow: auto;
+  max-height: 57dvh;
+  padding: 12px;
+  background: #eef2f3;
+  border: 1px solid #ccd6dc;
+}
+.figure-preview img {
+  display: block;
+  max-width: none;
+  height: auto;
+}
+
+.network-image-preview img {
+  max-width: 100%;
+  margin-inline: auto;
+}
+
+.figure-caption,
+.figure-slice-options {
+  margin-block: 12px;
+}
+.figure-caption textarea {
+  width: 100%;
+  font: inherit;
+}
+.figure-slice-options .check {
+  width: fit-content;
+}
+.graph-colour input {
+  width: 3rem;
+  padding: 4px;
 }

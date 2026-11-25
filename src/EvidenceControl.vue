@@ -13,7 +13,7 @@ const props = defineProps<{ variable: Variable }>(),
 const operator = ref<"gte" | "gt" | "lt" | "lte">("gte"),
   value = ref<number>(0),
   numeric = ref("");
-const evidence = computed(() => st.project.evidence[props.variable.id]);
+const evidence = computed(() => st.activeQuery?.evidence?.[props.variable.id]);
 const preview = computed(() => {
   try {
     return evidence.value === undefined

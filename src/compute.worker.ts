@@ -68,11 +68,25 @@ self.onmessage = async ({ data }) => {
           .object({
             posterior: z.record(z.string(), z.array(z.number())).optional(),
             direction: z.enum(["auto", "TB", "BT", "LR", "RL"]).default("auto"),
+            highlights: z
+              .object({
+                colors: z.object({
+                  evidence: z.string().regex(/^#[0-9a-f]{6}$/i),
+                  target: z.string().regex(/^#[0-9a-f]{6}$/i),
+                }),
+                targetIds: z.array(z.string()).max(100),
+              })
+              .optional(),
           })
           .parse(p.options);
         const { graphSvg } = await import("./graph-export");
         result = {
-          svg: await graphSvg(project, opts.posterior, opts.direction),
+          svg: await graphSvg(
+            project,
+            opts.posterior,
+            opts.direction,
+            opts.highlights,
+          ),
         };
       } else if (request.op === "sample") {
         const opts = z

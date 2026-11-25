@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
+import Papa from "papaparse";
 import { openDiscreteFixture, openExploration } from "./fixtures";
 const base = process.env.TEST_PATH || "/";
 async function load(page: Page) {
@@ -31,7 +32,7 @@ test("branding, state aliases, uniform CPT training and presentation-only edits"
     page.getByRole("tab", { name: "Network", exact: true }),
   ).toHaveAttribute("aria-selected", "true");
   await expect(
-    page.getByRole("group", { name: "Shared evidence", exact: true }),
+    page.getByRole("group", { name: "Query evidence", exact: true }),
   ).not.toBeVisible();
   await openExploration(page, "States & training");
   await page
@@ -61,7 +62,7 @@ test("branding, state aliases, uniform CPT training and presentation-only edits"
   await targets.getByLabel("Load", { exact: true }).uncheck();
   await targets.getByLabel("Failure", { exact: true }).check();
   const evidence = page.getByRole("group", {
-    name: "Shared evidence",
+    name: "Query evidence",
     exact: true,
   });
   await evidence
@@ -176,10 +177,27 @@ test("joint heatmaps, tabbed groups, higher-dimensional filters and exports", as
   );
   expect(json.provenance.group.targetIds).toHaveLength(3);
   const csvDownload = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Export CSV", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Export table CSV", exact: true })
+    .click();
   const csv = await readFile((await (await csvDownload).path())!, "utf8");
-  expect(csv.split("\r\n")).toHaveLength(9);
-  expect(csv).toContain("stateId");
+  const table = Papa.parse<[string, string, string, number, number]>(csv, {
+    skipEmptyLines: true,
+    dynamicTyping: true,
+  }).data;
+  expect(table[0]).toEqual([
+    "Load",
+    "Material",
+    "Failure",
+    "Prior",
+    "Posterior",
+  ]);
+  expect(table.slice(1)).toHaveLength(4);
+  for (const [, material, , prior, posterior] of table.slice(1)) {
+    expect(material).toBe("Steel");
+    expect(typeof prior).toBe("number");
+    expect(typeof posterior).toBe("number");
+  }
   await page.getByRole("button", { name: "Diagram", exact: true }).click();
   await page
     .getByRole("combobox", { name: "Columns", exact: true })
@@ -190,14 +208,14 @@ test("joint heatmaps, tabbed groups, higher-dimensional filters and exports", as
   await expect(
     page.locator('.joint-heatmap [data-cell="1-0"]'),
   ).toHaveAttribute("title", String(json.posterior[3]));
-  await page
-    .getByRole("combobox", { name: "Query", exact: true })
-    .selectOption({ label: "Load × Failure" });
+  await openExploration(page, "Queries");
+  await page.getByRole("tab", { name: "Load × Failure", exact: true }).click();
+  await run(page);
   await page.getByRole("button", { name: "Diagram", exact: true }).click();
   await expect(page.locator(".joint-heatmap")).toBeVisible();
   await openExploration(page, "Queries");
   await page
-    .getByRole("group", { name: "Shared evidence", exact: true })
+    .getByRole("group", { name: "Query evidence", exact: true })
     .getByRole("combobox", { name: "Material", exact: true })
     .selectOption({ label: "Aluminium" });
   await openExploration(page, "Results");
@@ -223,8 +241,10 @@ test("v1 projects migrate to query views without changing saved CPTs", async ({
   const download = await downloadPromise;
   const old = JSON.parse(await readFile((await download.path())!, "utf8"));
   old.schemaVersion = 1;
+  delete old.dataset.embeddedCsv;
   old.targetIds = old.variables.map((v: any) => v.id);
   delete old.queryGroups;
+  old.evidence = { [old.variables[0].id]: 0 };
   for (const v of old.variables) {
     delete v.stateLabels;
     delete v.displayDecimals;
@@ -238,7 +258,9 @@ test("v1 projects migrate to query views without changing saved CPTs", async ({
     mimeType: "application/json",
     buffer: Buffer.from(JSON.stringify(old)),
   });
-  await expect(page.getByText("Source not attached")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Locate project CSV" }),
+  ).toBeVisible();
   await openExploration(page, "Queries");
   await expect(page.locator(".query-tabs [role=tab]")).toHaveCount(3);
   await run(page);
@@ -252,4 +274,7 @@ test("v1 projects migrate to query views without changing saved CPTs", async ({
   expect(saved.schemaVersion).toBe(3);
   expect(saved.cpts.map((c: any) => c.values)).toEqual(values);
   expect(saved.queryGroups).toHaveLength(3);
+  expect(
+    saved.queryGroups.map((g: { evidence: unknown }) => g.evidence),
+  ).toEqual([old.evidence, old.evidence, old.evidence]);
 });

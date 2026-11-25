@@ -181,6 +181,13 @@ function editQuery() {
 function name(id: string) {
   return study.value?.snapshot.variables.find((v) => v.id === id)?.label ?? id;
 }
+function percentOfRange(ratio: number | null) {
+  return ratio === null
+    ? "Unavailable"
+    : (ratio * 100).toLocaleString(undefined, {
+        maximumSignificantDigits: 3,
+      }) + "%";
+}
 </script>
 
 <template>
@@ -276,8 +283,10 @@ function name(id: string) {
         </p>
         <template v-if="estimate">
           <p class="tiny muted">
-            Seeded held-out split. Numeric boundary counts use ±10% of the
-            constraint limit. State constraints count all held-out rows.
+            Seeded held-out split. Relative MAE divides mean absolute error by
+            the observed range of the held-out response. Numeric boundary counts
+            use ±10% of the constraint limit. State constraints count all
+            held-out rows.
           </p>
           <div class="study-table study-validation">
             <table>
@@ -311,6 +320,10 @@ function name(id: string) {
                         ? (row.value * 100).toFixed(1) + "%"
                         : Number(row.value.toPrecision(4))
                     }}
+                    <div v-if="row.numericError" class="tiny muted">
+                      Relative MAE
+                      {{ percentOfRange(row.numericError.meanRelative) }}
+                    </div>
                   </td>
                   <td>{{ row.fittedRows.toLocaleString() }}</td>
                   <td>
@@ -328,6 +341,31 @@ function name(id: string) {
                       <dd>{{ row.rows }} / {{ row.dropped }}</dd>
                       <dt>Held-out rows</dt>
                       <dd>{{ row.holdout }}</dd>
+                      <template v-if="row.numericError">
+                        <dt>Observed held-out range</dt>
+                        <dd>
+                          {{
+                            Number(row.numericError.minObserved.toPrecision(4))
+                          }}
+                          to
+                          {{
+                            Number(row.numericError.maxObserved.toPrecision(4))
+                          }}
+                        </dd>
+                        <dt>Largest absolute error (% of range)</dt>
+                        <dd>
+                          {{ percentOfRange(row.numericError.maxRelative) }}
+                        </dd>
+                        <dd
+                          v-if="
+                            row.numericError.minObserved ===
+                            row.numericError.maxObserved
+                          "
+                        >
+                          All held-out values are the same, so the relative
+                          errors are undefined.
+                        </dd>
+                      </template>
                       <template v-if="study.nodes[row.id].constraint">
                         <dt>Near the limit</dt>
                         <dd>

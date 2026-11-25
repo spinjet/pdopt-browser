@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import GraphExport from "./GraphExport.vue";
 import { computed, nextTick, ref, watch } from "vue";
 import {
   VueFlow,
@@ -114,7 +115,7 @@ const nodes = computed(() =>
     data: {
       label: v.label,
       states: v.states.length,
-      evidence: st.project.evidence[v.id] !== undefined,
+      evidence: st.activeQuery?.evidence?.[v.id] !== undefined,
       trained: st.project.cpts.some((c) => c.variableId === v.id),
       cycle: st.cycles.includes(v.id),
     },
@@ -331,6 +332,7 @@ function parentAssignment(
             >
               Auto layout
             </button>
+            <GraphExport />
           </div>
         </div>
         <div v-if="st.cycles.length" class="cycle-warning" role="alert">

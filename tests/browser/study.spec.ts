@@ -2,7 +2,6 @@ import { readFile } from "node:fs/promises";
 import { openExploration } from "./fixtures";
 import Papa from "papaparse";
 import { expect, test, type Page } from "@playwright/test";
-import { evaluateCantilever, materials } from "../../src/cantilever-example";
 
 test.use({ actionTimeout: 8000 });
 
@@ -19,7 +18,6 @@ async function loadDesignQuery(page: Page) {
   await expect(page.getByRole("status")).toContainText("Trained 8 CPTs");
   await openExploration(page, "Queries");
   await page.getByRole("tab", { name: "Design space" }).click();
-  await page.getByRole("button", { name: "Apply saved evidence" }).click();
   await page.getByRole("button", { name: "Run query" }).click();
   await expect(
     page.getByText("Current results", { exact: true }),
@@ -89,21 +87,34 @@ test("creates, previews, applies and reopens sampled and calculated data", async
   ).toBe(true);
   await data.getByRole("button", { name: "Add to network" }).click();
   await expect(page.locator(".statusbar")).toContainText("1 variables");
+  await page.getByRole("tab", { name: "Data", exact: true }).click();
+  await data.getByText("Data settings", { exact: true }).click();
+  await data.getByRole("checkbox", { name: "Include raw CSV" }).uncheck();
   const detachedDownload = page.waitForEvent("download");
   await page.getByRole("button", { name: "Save project", exact: true }).click();
   await page
     .getByTestId("project-file")
     .setInputFiles((await (await detachedDownload).path())!);
-  await page.getByRole("button", { name: "Go to Data" }).click();
   await expect(
-    data.getByRole("button", { name: "Reattach matching CSV" }),
+    data.getByRole("button", { name: "Locate project CSV" }),
   ).toBeVisible();
+  await page.getByTestId("attach-file").setInputFiles({
+    name: "wrong.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from("Width,Is wide\n1,0\n2,0"),
+  });
+  await expect(page.getByRole("alert")).toContainText(
+    "Your project was preserved",
+  );
+  await expect(page.locator(".statusbar")).toContainText("1 variables");
   await page.getByTestId("attach-file").setInputFiles((await csv.path())!);
   await expect(page.getByRole("status")).toContainText(
     "Matching dataset reattached.",
   );
   await data.getByText("Data settings", { exact: true }).click();
-  await data.getByRole("checkbox", { name: "Include raw CSV" }).check();
+  await expect(
+    data.getByRole("checkbox", { name: "Include raw CSV" }),
+  ).toBeChecked();
   const download = page.waitForEvent("download");
   await page.getByRole("button", { name: "Save project", exact: true }).click();
   await page
@@ -149,9 +160,30 @@ test("keeps trained query results after appending an unused beam formula", async
       .evaluateAll((cells) => cells.map((cell) => cell.getAttribute("title"))),
   ).toEqual(before);
   await expect(page.locator(".statusbar")).toContainText("8 trained CPTs");
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Save project", exact: true }).click();
+  await page
+    .getByTestId("project-file")
+    .setInputFiles((await (await download).path())!);
+  await expect(page.getByRole("status")).toContainText(
+    "Project and dataset opened",
+  );
+  await page.getByRole("tab", { name: "Data", exact: true }).click();
+  await expect(
+    data.getByRole("columnheader", { name: "Area", exact: true }),
+  ).toBeVisible();
+  await openExploration(page, "Queries");
+  await page.getByRole("tab", { name: "Design space", exact: true }).click();
+  await page.getByRole("button", { name: "Run query", exact: true }).click();
+  await expect(result).toBeVisible();
+  expect(
+    await result
+      .locator("[data-cell]")
+      .evaluateAll((cells) => cells.map((cell) => cell.getAttribute("title"))),
+  ).toEqual(before);
 });
 
-test("launches a query study, verifies the beam front and links plot selection to export", async ({
+test("launches a query study, explores the predicted front and links plot selection to export", async ({
   page,
 }) => {
   test.setTimeout(60000);
@@ -219,9 +251,7 @@ test("launches a query study, verifies the beam front and links plot selection t
   await expect(
     study.getByRole("button", { name: "Pareto", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
-  await study
-    .getByRole("combobox", { name: "Evaluation", exact: true })
-    .selectOption("verified");
+  await expect(study.getByText("Surrogate predictions")).toBeVisible();
   const selected = study.locator(".study-selection [role='status']");
   await expect(selected).toHaveText(/^[1-9][0-9,]* selected/);
   const plot = study.locator("canvas[aria-label='Pareto chart']");
@@ -324,17 +354,10 @@ test("launches a query study, verifies the beam front and links plot selection t
   );
   expect(data).toHaveLength(1);
   expect(data[0].Design).toBe(first);
-  expect(data[0].Evaluation).toBe("verified");
+  expect(data[0].Evaluation).toBe("predicted");
   expect(Number(data[0]["Tip load (N)"])).toBe(110);
-  const material = materials.find((m) => m.name === data[0].Material)!;
-  const beam = evaluateCantilever(
-    Number(data[0]["Width (mm)"]),
-    Number(data[0]["Depth (mm)"]),
-    110,
-    material,
-  );
-  expect(beam.failure).toBe("Passes");
-  expect(beam.massKg).toBeLessThan(1);
+  expect(data[0].Failure).toBe("Passes");
+  expect(Number(data[0]["Beam mass (kg)"])).toBeLessThan(1);
 });
 
 test("cancels a pending study fit and retries in a fresh worker", async ({

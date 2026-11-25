@@ -4,7 +4,6 @@ import { useProject } from "./store";
 import { LIMITS } from "./domain";
 import { download } from "./files";
 import { encode } from "./processing";
-import CantileverTutorial from "./CantileverTutorial.vue";
 import DataColumnEditor from "./DataColumnEditor.vue";
 import RawDataPreview from "./RawDataPreview.vue";
 import {
@@ -171,22 +170,25 @@ async function cantileverExample() {
       id: crypto.randomUUID(),
       name: "Stress and deflection",
       targetIds: [stress.id, deflection.id],
+      evidence: {},
     },
     {
       id: crypto.randomUUID(),
       name: "Bending failure",
       targetIds: [failure.id],
+      evidence: {},
     },
     {
       id: crypto.randomUUID(),
       name: "Beam mass",
       targetIds: [mass.id],
+      evidence: {},
     },
     {
       id: crypto.randomUUID(),
       name: "Design space",
       targetIds: [width.id, depth.id, material.id],
-      savedEvidence: {
+      evidence: {
         [load.id]: encode(load, "100"),
         [failure.id]: failure.states.indexOf("Passes"),
         [mass.id]: { kind: "threshold", operator: "lt", value: 1 },
@@ -231,8 +233,20 @@ async function cantileverExample() {
     <div class="data-workspace-content">
       <section class="data-source" aria-label="Data source">
         <div class="data-actions">
+          <button
+            v-if="needsSource"
+            class="primary"
+            :disabled="st.busy"
+            @click="attachInput?.click()"
+          >
+            Locate project CSV
+          </button>
           <button :disabled="st.busy" @click="csvInput?.click()">
-            Import CSV
+            {{
+              descriptor || st.project.variables.length
+                ? "Replace dataset and start a new network"
+                : "Import CSV"
+            }}
           </button>
           <label class="data-delimiter"
             >CSV delimiter
@@ -243,13 +257,6 @@ async function cantileverExample() {
               <option :value="'\t'">Tab</option>
             </select>
           </label>
-          <button
-            v-if="needsSource"
-            :disabled="st.busy"
-            @click="attachInput?.click()"
-          >
-            Reattach matching CSV
-          </button>
           <div class="data-actions data-example">
             <button
               v-if="!st.project.variables.length"
@@ -258,11 +265,11 @@ async function cantileverExample() {
             >
               Load cantilever beam example
             </button>
-            <CantileverTutorial />
           </div>
         </div>
         <p v-if="needsSource" class="muted">
-          Reattach the matching CSV to view rows or add columns.
+          Locate <strong>{{ descriptor?.name }}</strong> to restore the data for
+          this network.
         </p>
       </section>
 

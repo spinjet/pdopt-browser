@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { computed, ref, watch, nextTick } from "vue";
+import GraphExport from "./GraphExport.vue";
+import { computed, ref, watch } from "vue";
 import {
   VueFlow,
   Handle,
   MarkerType,
   Position,
   useVueFlow,
+  useNodesInitialized,
 } from "@vue-flow/core";
 import { useProject } from "./store";
 import { stateLabel } from "./domain";
@@ -14,7 +16,9 @@ const st = useProject(),
   flow = useVueFlow({ id: "inference" }),
   expanded = ref<Record<string, boolean>>({});
 const graphProject = computed(() =>
-  st.current ? st.project : st.resultSnapshot || st.project,
+  st.current && st.resultSnapshot
+    ? { ...st.project, evidence: st.resultSnapshot.evidence }
+    : (st.resultSnapshot ?? st.project),
 );
 const nodes = computed(() =>
   graphProject.value.variables.map((v) => {
@@ -48,32 +52,29 @@ const edges = computed(() =>
     style: { stroke: "#718599", strokeWidth: 2 },
   })),
 );
-let initialFit = false,
-  resultFit = false;
+const nodesReady = useNodesInitialized();
+let fitOnResize = true;
+function fitView() {
+  fitOnResize = true;
+  return flow.fitView({ padding: 0.08 });
+}
+flow.onMoveStart(({ event }) => {
+  if (event instanceof WheelEvent || event?.sourceEvent) fitOnResize = false;
+});
 watch(
   () => st.project.id,
   () => {
-    initialFit = false;
-    resultFit = false;
+    fitOnResize = true;
   },
 );
 watch(
-  [
-    () => props.visible,
-    () => st.resultStamp,
-    () => graphProject.value.variables.length,
-  ],
-  async () => {
-    if (!props.visible || !graphProject.value.variables.length) return;
-    if (!initialFit || (!resultFit && st.results)) {
-      initialFit = true;
-      if (st.results) resultFit = true;
-      await nextTick();
-      requestAnimationFrame(() =>
-        requestAnimationFrame(() => flow.fitView({ padding: 0.2 })),
-      );
-    }
+  [() => props.visible, flow.dimensions, nodesReady, () => st.resultStamp],
+  () => {
+    const { width, height } = flow.dimensions.value;
+    if (props.visible && nodesReady.value && fitOnResize && width && height)
+      void fitView();
   },
+  { flush: "post" },
 );
 </script>
 <template>
@@ -82,7 +83,10 @@ watch(
       <div>
         <h2>Probability graph</h2>
       </div>
-      <button @click="flow.fitView({ padding: 0.2 })">Fit view</button>
+      <div class="canvas-tools">
+        <button @click="fitView">Fit view</button>
+        <GraphExport probabilities />
+      </div>
     </div>
     <p v-if="st.results && !st.current" class="outdated-label">
       Outdated probabilities — run inference again

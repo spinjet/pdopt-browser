@@ -1,9 +1,7 @@
 import type { Study, StudyValue, Variable } from "./domain";
-import { evaluateCantilever, materials } from "./cantilever-example";
 import { shuffle } from "./data-columns";
 import { randomGenerator } from "./numbers";
 import {
-  beamColumns,
   STUDY_BUDGET,
   studyResponses,
   type Evaluation,
@@ -54,51 +52,6 @@ function nonDominated<T>(items: T[], values: (x: T) => number[]): T[] {
   return front.map((entry) => entry.item);
 }
 
-function beamEvaluator(study: Study, responses: Variable[]) {
-  const columns = beamColumns(study);
-  if (!columns) return;
-  const [width, depth, load, material] = columns;
-  if (
-    !width ||
-    !depth ||
-    !load ||
-    !material ||
-    [width, depth, load, material].some(
-      (v) => !["input", "fixed"].includes(study.nodes[v.id].role),
-    ) ||
-    responses.some((v) => !["c4", "c5", "c6", "c7"].includes(v.columnId))
-  )
-    return;
-  return (input: Record<string, StudyValue>) => {
-    const selected = materials.find((m) => m.name === input[material.id]);
-    if (!selected) throw new Error("Unknown cantilever material.");
-    const w = Number(input[width.id]),
-      d = Number(input[depth.id]),
-      f = Number(input[load.id]);
-    if (w <= 0 || d <= 0 || f < 0)
-      throw new Error(
-        "The beam equations require positive dimensions and nonnegative load.",
-      );
-    const result = evaluateCantilever(w, d, f, selected);
-    const columns = {
-      c4: result.stress,
-      c5: result.deflection,
-      c6: result.failure,
-      c7: result.massKg,
-    };
-    return evaluate(
-      study,
-      Object.fromEntries(
-        responses.map((v) => [
-          v.id,
-          columns[v.columnId as keyof typeof columns],
-        ]),
-      ),
-      responses,
-    );
-  };
-}
-
 export function searchStudy(
   study: Study,
   retained: StudyRegion[],
@@ -115,7 +68,6 @@ export function searchStudy(
   const objective = objectives(study, responses);
   const objectiveValue = (evaluation: Evaluation) =>
     objective.map(({ id, sign }) => sign * Number(evaluation.outputs[id]));
-  const verify = beamEvaluator(study, responses);
   const fixed = Object.fromEntries(
     study.snapshot.variables.flatMap((v) =>
       study.nodes[v.id].role === "fixed"
@@ -151,7 +103,6 @@ export function searchStudy(
           region: region.index,
           inputs,
           predicted,
-          verified: verify?.(inputs),
         });
         feasible += Number(predicted.feasible);
       }
@@ -226,16 +177,13 @@ export function searchStudy(
         feasible,
       });
   }
-  for (const sort of ["predicted", "verified"] as const) {
-    const front = nonDominated(
-      designs.filter((d) => d[sort]?.feasible),
-      (d) => objectiveValue(d[sort]!),
-    );
-    for (const design of front) design[sort]!.pareto = true;
-  }
+  const front = nonDominated(
+    designs.filter((design) => design.predicted.feasible),
+    (design) => objectiveValue(design.predicted),
+  );
+  for (const design of front) design.predicted.pareto = true;
   return {
     designs,
     validation: models.map((model) => model.validation),
-    verified: !!verify,
   };
 }

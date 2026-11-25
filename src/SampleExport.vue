@@ -9,9 +9,11 @@ const props = defineProps<{ groupId: string }>(),
   bounds = ref<Record<string, { min: number; max: number }>>({});
 const variables = computed(
   () =>
-    st.project.queryGroups
+    st.resultSnapshot?.queryGroups
       .find((g) => g.id === props.groupId)
-      ?.targetIds.map((id) => st.project.variables.find((v) => v.id === id)!)
+      ?.targetIds.map((id) =>
+        st.resultSnapshot!.variables.find((v) => v.id === id)!,
+      )
       .filter((v) => v.binning) || [],
 );
 watch(

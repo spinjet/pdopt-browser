@@ -65,6 +65,7 @@ export const queryGroupSchema = z.object({
   id: z.string().min(1),
   name: z.string().trim().min(1).max(100),
   targetIds: z.array(z.string()).max(100),
+  evidence: evidenceSchema.optional(),
   savedEvidence: evidenceSchema.optional(),
 });
 export type QueryGroup = z.infer<typeof queryGroupSchema>;
@@ -407,8 +408,10 @@ export function validateProject(input: unknown): Project {
       throw new Error("Invalid study query snapshot or node settings.");
   }
   validateEvidence(p.variables, p.evidence);
-  for (const group of p.queryGroups)
-    if (group.savedEvidence) validateEvidence(p.variables, group.savedEvidence);
+  for (const group of p.queryGroups) {
+    const evidence = group.evidence ?? group.savedEvidence;
+    if (evidence) validateEvidence(p.variables, evidence);
+  }
   return p;
 }
 function validateEvidence(

@@ -188,11 +188,20 @@ export function scoreValidation(
     near = 0,
     nearMissed = 0,
     score = 0;
+  let minObserved = Infinity,
+    maxObserved = -Infinity,
+    maxError = 0;
   const output = (y: number) => responseValue(response, y);
   for (const [i, truth] of split.truth.entries()) {
-    score += split.categorical
-      ? Number(truth === prediction[i])
-      : Math.abs(truth - prediction[i]);
+    if (split.categorical) {
+      score += Number(truth === prediction[i]);
+    } else {
+      const error = Math.abs(truth - prediction[i]);
+      score += error;
+      maxError = Math.max(maxError, error);
+      minObserved = Math.min(minObserved, truth);
+      maxObserved = Math.max(maxObserved, truth);
+    }
     if (!constraint) continue;
     const actual = checkConstraint(response, constraint, output(truth));
     const predicted = checkConstraint(
@@ -212,11 +221,25 @@ export function scoreValidation(
       if (!actual.passes && predicted.passes) nearMissed++;
     }
   }
+  const value = score / split.truth.length;
+  const range = maxObserved - minObserved;
+  const relative = (error: number) =>
+    range > 0 && Number.isFinite(range) && Number.isFinite(error / range)
+      ? error / range
+      : null;
   return {
     id: response.id,
     predictors: ids,
     metric: split.categorical ? "Accuracy" : "MAE",
-    value: score / split.truth.length,
+    value,
+    numericError: split.categorical
+      ? undefined
+      : {
+          minObserved,
+          maxObserved,
+          meanRelative: relative(value),
+          maxRelative: relative(maxError),
+        },
     rows: split.train.length + split.truth.length,
     dropped: split.dropped,
     holdout: split.truth.length,

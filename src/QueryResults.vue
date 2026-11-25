@@ -2,10 +2,20 @@
 import { computed, ref, watch } from "vue";
 import { stateLabel, type Project } from "./domain";
 import type { JointResult } from "./engine";
+import QueryFigureExport from "./QueryFigureExport.vue";
+import Papa from "papaparse";
+import { download } from "./files";
+import {
+  heatmapColor,
+  heatmapText,
+  probabilityPercent as percent,
+  type QueryFigureData,
+} from "./query-figure";
 const props = defineProps<{
   project: Project;
   result: JointResult;
   current: boolean;
+  caption: string;
 }>();
 const presentation = ref<"diagram" | "table">("diagram");
 const rowAxis = ref(0),
@@ -65,18 +75,30 @@ const ordered = computed(() =>
 const visible = computed(() =>
   ordered.value.slice(page.value * 50, (page.value + 1) * 50),
 );
+function exportTable() {
+  const columns =
+    variables.value.length === 1
+      ? ["State"]
+      : variables.value.map((variable) => variable.label);
+  const records = variables.value.length === 1 ? rows.value : ordered.value;
+  const csv = Papa.unparse([
+    [...columns, "Prior", "Posterior"],
+    ...records.map((row) => [
+      ...row.states.map((state, index) =>
+        stateLabel(variables.value[index], state),
+      ),
+      row.prior,
+      row.probability,
+    ]),
+  ]);
+  download("pdopt-bn-query-table.csv", csv + "\r\n", "text/csv;charset=utf-8");
+}
 const mass = computed(() =>
   filtered.value.reduce((sum, r) => sum + r.probability, 0),
 );
 const max = computed(() =>
   props.result.posterior.reduce((peak, p) => Math.max(peak, p), 0),
 );
-function percent(p: number) {
-  const value = p * 100;
-  return (
-    (value > 0 && value < 0.001 ? value.toPrecision(3) : value.toFixed(3)) + "%"
-  );
-}
 const rowVariable = computed(() => variables.value[rowAxis.value]);
 const columnVariable = computed(() => variables.value[columnAxis.value]);
 const sliceAxes = computed(() =>
@@ -138,19 +160,40 @@ function cellKeys(event: KeyboardEvent, row: number, col: number) {
     ?.querySelector<HTMLElement>('[data-cell="' + row + "-" + col + '"]')
     ?.focus();
 }
-function heatText(p: number) {
-  const alpha = max.value ? 0.07 + (0.8 * p) / max.value : 0.07;
-  const rgb = [20, 106, 105].map((c) => {
-    const x = (255 * (1 - alpha) + c * alpha) / 255;
-    return x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
-  });
-  return 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2] > 0.179
-    ? "#000"
-    : "#fff";
-}
-function color(p: number) {
-  return `rgba(20,106,105,${max.value ? 0.07 + (0.8 * p) / max.value : 0.07})`;
-}
+const figure = computed<QueryFigureData>(() => {
+  const labels = (v: Project["variables"][number]) =>
+    v.states.map((_, index) => stateLabel(v, index));
+  if (variables.value.length === 1) {
+    const variable = variables.value[0];
+    return {
+      kind: "bars",
+      axis: variable.label,
+      states: labels(variable).map((label, index) => ({
+        label,
+        prior: props.result.prior[index],
+        posterior: props.result.posterior[index],
+      })),
+    };
+  }
+  const rowLabels = labels(rowVariable.value);
+  const columnLabels = labels(columnVariable.value);
+  return {
+    kind: "heatmap",
+    rowAxis: rowVariable.value.label,
+    columnAxis: columnVariable.value.label,
+    rows: rowLabels,
+    columns: columnLabels,
+    probabilities: rowLabels.map((_, i) =>
+      columnLabels.map((_, j) => cell(i, j)),
+    ),
+    max: max.value,
+    showValues: showValues.value,
+    slice: sliceAxes.value.map(({ v, index }) => ({
+      id: v.id,
+      label: `${v.label} = ${stateLabel(v, sliceStates.value[index])}`,
+    })),
+  };
+});
 </script>
 <template>
   <div class="query-result" :class="{ 'stale-results': !current }">
@@ -169,6 +212,14 @@ function color(p: number) {
         @click="presentation = 'table'"
       >
         Table
+      </button>
+      <QueryFigureExport
+        v-if="presentation === 'diagram'"
+        :data="figure"
+        :caption="caption"
+      />
+      <button v-else type="button" @click="exportTable">
+        Export table CSV
       </button>
     </div>
     <template v-if="variables.length === 1">
@@ -311,8 +362,8 @@ function color(p: number) {
                     selectedCell.row === i && selectedCell.col === j ? 0 : -1
                   "
                   :style="{
-                    background: color(cell(i, j)),
-                    color: heatText(cell(i, j)),
+                    background: heatmapColor(cell(i, j), max),
+                    color: heatmapText(cell(i, j), max),
                   }"
                   @mouseenter="hoveredCell = { row: i, col: j }"
                   @focus="
@@ -394,8 +445,8 @@ function color(p: number) {
         </button>
       </div>
       <p v-if="variables.length >= 3" class="tiny muted">
-        Filters do not renormalise probabilities. Exports include the full
-        distribution.
+        Filters do not renormalise probabilities. The CSV includes every
+        filtered row.
       </p>
     </template>
   </div>
