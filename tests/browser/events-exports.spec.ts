@@ -1,3 +1,4 @@
+import Papa from "papaparse";
 import { test, expect, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { unzipSync, strFromU8 } from "fflate";
@@ -119,8 +120,9 @@ test("four-side connections, exact numeric events, image and dependent sample do
   await page
     .getByRole("button", { name: "Query results", exact: true })
     .click();
-  await page.getByText("Export results", { exact: true }).click();
-  await page.getByText("Sample queried distribution", { exact: true }).click();
+  await page
+    .getByRole("button", { name: "Sample distribution", exact: true })
+    .click();
   await page
     .getByRole("spinbutton", { name: "Sample count", exact: true })
     .fill("100");
@@ -134,6 +136,46 @@ test("four-side connections, exact numeric events, image and dependent sample do
     value: 7,
   });
   expect(strFromU8(zip["samples.csv"]).split("\r\n")).toHaveLength(101);
+  await page
+    .getByRole("button", { name: "Generate samples", exact: true })
+    .click();
+  const analytics = page.getByRole("region", { name: "Sample analytics" });
+  await expect(analytics.getByRole("status")).toContainText("100 of 100");
+  await expect(
+    analytics.getByRole("region", { name: "Query sample scatter" }),
+  ).toBeVisible();
+  await analytics
+    .getByRole("button", { name: "Parallel coordinates", exact: true })
+    .click();
+  await expect(
+    analytics.locator("canvas[aria-label='Parallel coordinates chart']"),
+  ).toBeVisible();
+  await analytics
+    .getByRole("button", { name: "Sample table", exact: true })
+    .click();
+  await analytics
+    .getByRole("button", { name: "Select sample 1", exact: true })
+    .click();
+  await expect(analytics.getByRole("status")).toContainText("1 of 100");
+  const csvPromise = page.waitForEvent("download");
+  await analytics.getByRole("button", { name: "Export selected CSV" }).click();
+  const selectedCsv = await readFile(
+    (await (await csvPromise).path())!,
+    "utf8",
+  );
+  const parseCsv = (str: string) =>
+    Papa.parse<string[]>(str, { skipEmptyLines: true }).data;
+  expect(parseCsv(selectedCsv)).toEqual(
+    parseCsv(strFromU8(zip["samples.csv"])).slice(0, 2),
+  );
+  const [[temperature]] = parseCsv(selectedCsv).slice(1);
+  expect(Number(temperature)).toBeGreaterThanOrEqual(7);
+  expect(Number(temperature)).toBeLessThanOrEqual(20);
+  expect(Number.isInteger(Number(temperature))).toBe(false);
+  await analytics
+    .getByRole("button", { name: "Scatter plot", exact: true })
+    .click();
+  await expect(analytics.getByRole("status")).toContainText("1 of 100");
   await page
     .getByRole("button", { name: "Network graph", exact: true })
     .click();
@@ -288,9 +330,8 @@ for (const operation of ["graph", "sample"] as const)
         .getByRole("button", { name: "Export network image", exact: true })
         .click();
     } else {
-      await page.getByText("Export results", { exact: true }).click();
       await page
-        .getByText("Sample queried distribution", { exact: true })
+        .getByRole("button", { name: "Sample distribution", exact: true })
         .click();
       await button.click();
     }
@@ -315,8 +356,12 @@ for (const operation of ["graph", "sample"] as const)
     );
     await page.unroute(pattern);
     await expect(page.locator("#results-panel .network-node")).toHaveCount(3);
-    if (operation === "sample") await run(page);
-    else
+    if (operation === "sample") {
+      await run(page);
+      await page
+        .getByRole("button", { name: "Sample distribution", exact: true })
+        .click();
+    } else
       await exportDialog.getByRole("button", { name: "Retry preview" }).click();
     const download = page.waitForEvent("download");
     await button.click();

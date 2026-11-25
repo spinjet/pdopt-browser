@@ -8,7 +8,9 @@ import StudyExplore from "./StudyExplore.vue";
 
 const st = useProject();
 const study = computed(() => st.project.study);
-const view = ref<"setup" | "run" | "explore">("setup");
+const view = defineModel<"setup" | "run" | "explore">("view", {
+  required: true,
+});
 const views = [
   { id: "setup", label: "Setup" },
   { id: "run", label: "Run" },

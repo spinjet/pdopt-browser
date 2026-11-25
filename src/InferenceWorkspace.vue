@@ -15,9 +15,11 @@ import EvidenceControl from "./EvidenceControl.vue";
 import SampleExport from "./SampleExport.vue";
 import QueryResults from "./QueryResults.vue";
 import { initialiseStudy } from "./study";
-const st = useProject(),
-  view = ref<"graph" | "distribution">("distribution"),
-  activeGroupId = toRef(st, "activeGroupId");
+const st = useProject();
+const view = defineModel<"graph" | "distribution" | "samples">("view", {
+  required: true,
+});
+const activeGroupId = toRef(st, "activeGroupId");
 watch(
   () => st.project.queryGroups.map((g) => g.id),
   (ids) => {
@@ -362,6 +364,13 @@ function exportGroup() {
           >
             Query results
           </button>
+          <button
+            v-if="result"
+            :aria-pressed="view === 'samples'"
+            @click="view = 'samples'"
+          >
+            Sample distribution
+          </button>
         </div>
         <template v-if="result && completedGroup">
           <p>
@@ -408,10 +417,6 @@ function exportGroup() {
                 Export JSON
               </button>
             </div>
-            <SampleExport
-              :key="completedGroup.id"
-              :group-id="completedGroup.id"
-            />
           </details>
         </div>
         <QueryResults
@@ -422,6 +427,17 @@ function exportGroup() {
         />
       </template>
       <p v-else class="empty-results">Run a query to see its results here.</p>
+    </section>
+    <section
+      v-if="completedGroup"
+      v-show="view === 'samples'"
+      class="results-content query-samples"
+      aria-label="Query samples"
+    >
+      <p v-if="!st.current" class="outdated-label">
+        Run the query again to generate current samples.
+      </p>
+      <SampleExport :key="completedGroup.id" :group-id="completedGroup.id" />
     </section>
   </main>
 </template>

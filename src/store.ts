@@ -719,11 +719,14 @@ export const useProject = defineStore("project", () => {
       (x) => z.object({ svg: z.string() }).parse(x),
     );
   }
-  async function exportSamples(
+  async function requestSamples<T>(
     groupId: string,
     options: import("./sampling").SampleOptions,
+    output: "archive" | "rows",
+    parse: (data: unknown) => T,
   ) {
-    if (!current.value || !results.value?.groups[groupId]) {
+    const joint = results.value?.groups[groupId];
+    if (!current.value || !joint) {
       error.value = "Run inference before sampling the current query.";
       return;
     }
@@ -731,12 +734,41 @@ export const useProject = defineStore("project", () => {
       "sample",
       {
         project: resultSnapshot.value,
-        options: { ...options, groupId, joint: results.value.groups[groupId] },
+        options: { ...options, output, groupId, joint },
       },
-      (x) =>
-        z
-          .object({ archive: z.instanceof(Uint8Array), count: z.number() })
-          .parse(x),
+      parse,
+    );
+  }
+  function exportSamples(
+    groupId: string,
+    options: import("./sampling").SampleOptions,
+  ) {
+    return requestSamples(groupId, options, "archive", (x) =>
+      z
+        .object({ archive: z.instanceof(Uint8Array), count: z.number() })
+        .parse(x),
+    );
+  }
+  function sampleForExploration(
+    groupId: string,
+    options: import("./sampling").SampleOptions,
+  ) {
+    return requestSamples(groupId, options, "rows", (x) =>
+      z
+        .object({
+          axes: z
+            .array(
+              z.object({
+                id: z.string(),
+                label: z.string(),
+                categories: z.array(z.string()).optional(),
+              }),
+            )
+            .min(1),
+          rows: z.array(z.array(z.union([z.number(), z.string()]))),
+          seed: z.number(),
+        })
+        .parse(x),
     );
   }
   function cancel() {
@@ -750,6 +782,7 @@ export const useProject = defineStore("project", () => {
     addThresholdCut,
     exportGraph,
     exportSamples,
+    sampleForExploration,
     activeTab,
     embedDataset,
     renameStates,

@@ -14,6 +14,12 @@ test("cantilever tutorial demonstrates bending failure and a mass-constrained de
     exact: true,
   });
   await expect(
+    tutorial.getByRole("heading", { name: "Data", exact: true }),
+  ).toBeVisible();
+  await tutorial
+    .getByLabel("Help content")
+    .selectOption({ label: "Cantilever tutorial" });
+  await expect(
     tutorial.getByRole("heading", { name: "Cantilever beam tutorial" }),
   ).toBeVisible();
   const diagram = tutorial.getByRole("img", { name: /Cantilever schematic/ });
@@ -515,6 +521,50 @@ test("groups exploration views and remembers the selected view", async ({
   await page.getByRole("button", { name: "New", exact: true }).click();
   await exploration.click();
   await expect(network).toHaveAttribute("aria-selected", "true");
+  await page.setViewportSize({ width: 1864, height: 1074 });
+  const editor = page.getByRole("region", { name: "Network editor" });
+  const footer = page.locator("footer");
+  await expect
+    .poll(async () => {
+      const canvas = (await editor.boundingBox())!;
+      return Math.round(
+        canvas.y + canvas.height - (await footer.boundingBox())!.y,
+      );
+    })
+    .toBe(0);
+  await page
+    .getByRole("button", { name: "Help/Tutorial", exact: true })
+    .click();
+  const help = page.getByRole("complementary", { name: "Help", exact: true });
+  await expect(
+    help.getByRole("heading", { name: "Network", exact: true }),
+  ).toBeVisible();
+  await expect
+    .poll(async () =>
+      Math.round(
+        (await footer.boundingBox())!.y + (await footer.boundingBox())!.height,
+      ),
+    )
+    .toBe(1074);
+  await openExploration(page, "States & training");
+  await expect(
+    help.getByRole("heading", { name: "States & training", exact: true }),
+  ).toBeVisible();
+  await openExploration(page, "Results");
+  await expect(
+    help.getByRole("heading", { name: "Results · Query results" }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Network graph", exact: true })
+    .click();
+  await expect(
+    help.getByRole("heading", { name: "Results · Network graph" }),
+  ).toBeVisible();
+  await study.click();
+  await expect(
+    help.getByRole("heading", { name: "Optimisation Study · Setup" }),
+  ).toBeVisible();
+  await help.getByRole("button", { name: "Close tutorial" }).click();
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(study).toBeInViewport({ ratio: 1 });
 });

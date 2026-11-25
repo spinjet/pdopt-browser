@@ -5,31 +5,47 @@ import CantileverTutorial from "./CantileverTutorial.vue";
 const props = defineProps<{ tab: keyof typeof help }>();
 const width = defineModel<number>("width", { required: true });
 const emit = defineEmits<{ close: [] }>();
-const mode = ref<"tutorial" | "context">("tutorial");
+const mode = ref<"tutorial" | "context">("context");
 const help = {
   data: {
     title: "Data",
-    text: "Import a CSV, sample a column or calculate values from the existing columns. Review the data before adding variables to the network.",
+    text: "Import a CSV, sample a column or calculate one from existing columns. Review the data before adding variables to the network. Save project embeds the current dataset by default.",
   },
   network: {
     title: "Network",
-    text: "Add variables from the dataset or create manual nodes. Connect the handle of a parent node to the handle of its child.",
+    text: "Add variables from the dataset or create manual nodes. Drag from a parent’s handle to a child’s handle to define a dependency. Use Auto layout to arrange nodes and Fit view to see the whole graph.",
   },
   states: {
     title: "States & training",
-    text: "Check which states each variable can take. Set bin boundaries for continuous values, preview the usable rows, then fit the probability tables.",
+    text: "Select a variable to edit its states or set bin boundaries for continuous values. Review the usable rows, then train the conditional probability tables before running a query.",
   },
   queries: {
     title: "Queries",
-    text: "Select the variables you want to learn about as targets. Set the known conditions under Query evidence. Duplicate a query to try different conditions.",
+    text: "Choose the variables you want to learn about as targets and set their known conditions under Query evidence. Each query keeps its own evidence. Duplicate a query to try another case.",
   },
-  results: {
-    title: "Results",
-    text: "View how the evidence updates the network, or inspect the query distribution. Use Export figure on the diagram to save the current plot and slice.",
+  graph: {
+    title: "Results · Network graph",
+    text: "Inspect how the query’s evidence updates state probabilities across the network. Use Fit view to recenter the graph or Export network image to save a labelled SVG or PNG.",
   },
-  study: {
-    title: "Optimisation Study",
-    text: "Start from a query result, then review the retained design regions and configure inputs, fixed conditions, objectives and constraints. Fit surrogates before searching the regions.",
+  distribution: {
+    title: "Results · Query results",
+    text: "Inspect the query as a chart or table. For queries with more than two targets, select a heatmap slice. Use Export figure for publication graphics or Export table CSV for the filtered rows.",
+  },
+  samples: {
+    title: "Results · Sample distribution",
+    text: "Generate a seeded sample from the full joint posterior. Brush axes or select points to inspect the same rows across plots and the sample table.",
+  },
+  setup: {
+    title: "Optimisation Study · Setup",
+    text: "Start a study from a query result. Review the retained design regions, then set inputs, fixed operating conditions, objectives and constraints.",
+  },
+  run: {
+    title: "Optimisation Study · Run",
+    text: "Fit surrogate models and review the held-out errors and missed constraint violations. Relative MAE expresses the average numeric error as a share of the observed range. Then search the retained regions.",
+  },
+  explore: {
+    title: "Optimisation Study · Explore",
+    text: "Compare predicted trade-offs on the Pareto plot and use parallel coordinates to filter designs. Open the design table to inspect and export the selected rows.",
   },
 };
 </script>

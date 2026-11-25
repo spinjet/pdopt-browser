@@ -22,6 +22,13 @@ const st = useProject(),
   openInput = ref<HTMLInputElement>();
 const helpOpen = ref(false);
 const helpWidth = ref(380);
+const resultView = ref<"graph" | "distribution" | "samples">("distribution");
+const studyView = ref<"setup" | "run" | "explore">("setup");
+const helpView = computed(() => {
+  if (st.activeTab === "results") return resultView.value;
+  if (st.activeTab === "study") return studyView.value;
+  return st.activeTab;
+});
 function closeHelp() {
   helpOpen.value = false;
   document.getElementById("help-toggle")?.focus();
@@ -226,13 +233,16 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
             </button>
           </div>
           <BuildWorkspace />
-          <InferenceWorkspace />
+          <InferenceWorkspace v-model:view="resultView" />
         </div>
-        <StudyWorkspace v-if="st.activeTab === 'study' || st.project.study" />
+        <StudyWorkspace
+          v-if="st.activeTab === 'study' || st.project.study"
+          v-model:view="studyView"
+        />
       </div>
       <HelpPanel
         v-show="helpOpen"
-        :tab="st.activeTab"
+        :tab="helpView"
         v-model:width="helpWidth"
         @close="closeHelp"
       />

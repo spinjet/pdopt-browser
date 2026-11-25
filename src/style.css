@@ -1162,7 +1162,11 @@ footer {
 .workspace-tabs button {
   flex-shrink: 0;
 }
+.build-workspaces {
+  display: contents;
+}
 .network-workspace {
+  flex: 1;
   grid-template-columns: minmax(220px, 265px) minmax(0, 1fr);
 }
 .manual-node,
@@ -1176,6 +1180,10 @@ footer {
   align-items: start;
   gap: 20px;
   padding: 20px;
+}
+.states-workspace,
+.query-workspace {
+  flex: 1;
 }
 .states-workspace .panel,
 .query-controls > fieldset {
@@ -1851,7 +1859,11 @@ footer {
   .workspace-body.with-help {
     display: grid;
     grid-template-columns: minmax(0, 1fr) min(var(--help-width), 40vw);
-    align-items: start;
+  }
+  .help-panel {
+    height: auto;
+    max-height: min(100dvh, 900px);
+    contain: size;
   }
 }
 @media (max-width: 1099px) {
@@ -1930,4 +1942,29 @@ footer {
 .graph-colour input {
   width: 3rem;
   padding: 4px;
+}
+
+.query-samples {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+.sample-settings {
+  padding: 0 0 12px;
+}
+.sample-settings summary {
+  cursor: pointer;
+}
+.sample-settings fieldset {
+  margin-block: 8px;
+}
+.sample-settings fieldset label {
+  display: inline-block;
+  margin-inline-end: 12px;
+}
+.sample-settings button + button {
+  margin-inline-start: 8px;
+}
+.sample-explore {
+  padding-inline: 0;
 }

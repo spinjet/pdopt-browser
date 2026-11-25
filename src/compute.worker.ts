@@ -92,6 +92,7 @@ self.onmessage = async ({ data }) => {
         const opts = z
           .object({
             groupId: z.string(),
+            output: z.enum(["archive", "rows"]),
             joint: z.object({
               targetIds: z.array(z.string()),
               shape: z.array(z.number().int()),
@@ -106,8 +107,11 @@ self.onmessage = async ({ data }) => {
             ),
           })
           .parse(p.options);
-        const { sampleArchive } = await import("./sampling");
-        result = sampleArchive(project, opts.groupId, opts.joint, opts);
+        const { sampleArchive, exploreSamples } = await import("./sampling");
+        result =
+          opts.output === "rows"
+            ? exploreSamples(project, opts.groupId, opts.joint, opts)
+            : sampleArchive(project, opts.groupId, opts.joint, opts);
       } else if (request.op === "layout") {
         const layoutUrl = new URL(p.layoutUrl!);
         if (layoutUrl.origin !== self.location.origin)

@@ -1,7 +1,11 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, defineAsyncComponent, ref, shallowRef, watch } from "vue";
 import { useProject } from "./store";
 import { downloadBytes } from "./files";
+import { MAX_VISUAL_SAMPLES } from "./sampling";
+const QuerySampleExplore = defineAsyncComponent(
+  () => import("./QuerySampleExplore.vue"),
+);
 const props = defineProps<{ groupId: string }>(),
   st = useProject(),
   count = ref(1000),
@@ -16,6 +20,28 @@ const variables = computed(
       )
       .filter((v) => v.binning) || [],
 );
+const sample =
+  shallowRef<Awaited<ReturnType<typeof st.sampleForExploration>>>();
+const generation = ref(0);
+watch(
+  () => st.results,
+  () => {
+    sample.value = undefined;
+  },
+);
+async function visualise() {
+  const result = await st.sampleForExploration(props.groupId, {
+    count: count.value,
+    seed: seed.value,
+    bounds: bounds.value,
+  });
+  if (result) {
+    generation.value++;
+    sample.value = result;
+    settingsOpen.value = false;
+  }
+}
+const settingsOpen = ref(true);
 watch(
   variables,
   (vs) => {
@@ -38,8 +64,12 @@ async function run() {
 }
 </script>
 <template>
-  <details>
-    <summary>Sample queried distribution</summary>
+  <details
+    :open="settingsOpen"
+    @toggle="settingsOpen = ($event.target as HTMLDetailsElement).open"
+    class="sample-settings"
+  >
+    <summary>Sampling settings</summary>
     <p class="tiny">
       Samples use the complete joint posterior, regardless of table filters.
       Numeric values are uniform within finite bin bounds; this assumption is
@@ -72,12 +102,24 @@ async function run() {
           v-model.number="bounds[v.id].max"
       /></label>
     </fieldset>
+    <button
+      class="primary"
+      @click="visualise"
+      :disabled="st.busy || !st.current || count > MAX_VISUAL_SAMPLES"
+    >
+      Generate samples
+    </button>
     <button @click="run" :disabled="st.busy || !st.current">
       Download samples ZIP
     </button>
     <p class="tiny">
-      CSV plus reproducibility manifest. Maximum 100,000 rows. Bounds must
-      retain every positive-probability state.
+      Up to {{ MAX_VISUAL_SAMPLES.toLocaleString() }} interactive samples or
+      100,000 rows in the ZIP. Bounds must retain every positive-probability
+      state.
     </p>
   </details>
+  <QuerySampleExplore v-if="sample" :key="generation" v-bind="sample" />
+  <p v-else class="empty-results">
+    Generate samples to explore the query’s distribution.
+  </p>
 </template>

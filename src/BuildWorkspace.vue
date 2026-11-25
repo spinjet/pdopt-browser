@@ -232,7 +232,7 @@ function parentAssignment(
 }
 </script>
 <template>
-  <div>
+  <div class="build-workspaces">
     <main
       id="network-panel"
       class="workspace network-workspace"

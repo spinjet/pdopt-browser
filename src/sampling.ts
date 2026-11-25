@@ -1,4 +1,4 @@
-import type { Project } from "./domain";
+import type { Project, StudyValue } from "./domain";
 import { stateLabel } from "./domain";
 import type { JointResult } from "./engine";
 import { nextDown, randomGenerator } from "./numbers";
@@ -10,11 +10,44 @@ export interface SampleOptions {
   bounds: Record<string, { min: number; max: number }>;
 }
 export { randomGenerator } from "./numbers";
-export function sampleArchive(
+export const MAX_VISUAL_SAMPLES = 5000;
+
+export function exploreSamples(
   project: Project,
   groupId: string,
   joint: JointResult,
   options: SampleOptions,
+) {
+  if (options.count > MAX_VISUAL_SAMPLES)
+    throw new Error(
+      `Choose up to ${MAX_VISUAL_SAMPLES.toLocaleString()} samples for visual analytics.`,
+    );
+  const rows: StudyValue[][] = [];
+  const { vars, names } = drawSamples(
+    project,
+    groupId,
+    joint,
+    options,
+    (values) => rows.push(values),
+  );
+  return {
+    axes: vars.map((v, index) => ({
+      id: v.id,
+      label: names[index],
+      categories:
+        v.representation === "categorical" ? v.stateLabels : undefined,
+    })),
+    rows,
+    seed: options.seed,
+  };
+}
+
+function drawSamples(
+  project: Project,
+  groupId: string,
+  joint: JointResult,
+  options: SampleOptions,
+  consume: (values: StudyValue[]) => void,
 ) {
   const { count, seed, bounds } = options;
   if (!Number.isInteger(count) || count < 1 || count > 100000)
@@ -89,8 +122,6 @@ export function sampleArchive(
     seen.add(name);
     names.push(name);
   }
-  const rows = [names.map(csvCell).join(",")];
-  let bytes = rows[0].length;
   for (let row = 0; row < count; row++) {
     const u = rng() * sum;
     let lo = 0,
@@ -117,12 +148,37 @@ export function sampleArchive(
         );
       }
     });
-    const line = values.map(csvCell).join(",");
-    bytes += new TextEncoder().encode(line).length + 2;
-    if (bytes > 100 * 1024 * 1024)
-      throw new Error("Sample CSV exceeds 100 MiB. Reduce the sample count.");
-    rows.push(line);
+    consume(values);
   }
+  return { group, vars, names };
+}
+
+export function sampleArchive(
+  project: Project,
+  groupId: string,
+  joint: JointResult,
+  options: SampleOptions,
+) {
+  const { count, seed, bounds } = options;
+  const rows = [""];
+  const encoder = new TextEncoder();
+  let bytes = 0;
+  const { group, vars, names } = drawSamples(
+    project,
+    groupId,
+    joint,
+    options,
+    (values) => {
+      const line = values.map(csvCell).join(",");
+      bytes += encoder.encode(line).length + 2;
+      if (bytes > 100 * 1024 * 1024)
+        throw new Error("Sample CSV exceeds 100 MiB. Reduce the sample count.");
+      rows.push(line);
+    },
+  );
+  rows[0] = names.map(csvCell).join(",");
+  if (bytes + encoder.encode(rows[0]).length > 100 * 1024 * 1024)
+    throw new Error("Sample CSV exceeds 100 MiB. Reduce the sample count.");
   const manifest = {
     formatVersion: 1,
     sampler: "joint-cdf/mulberry32-v1",
