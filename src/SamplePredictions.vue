@@ -7,7 +7,7 @@ import { stateLabel, studyValueSchema, type StudyValue } from "./domain";
 import { encode } from "./processing";
 import { csvCell, downloadBytes } from "./files";
 import { surrogateClient } from "./surrogate-client";
-import { significant } from "./query-figure";
+import { formatDecimal } from "./query-figure";
 import type { PlotAxis } from "./study-plot";
 import type { SampleOptions } from "./sampling";
 
@@ -317,7 +317,10 @@ function downloadPredictions() {
           {{ report.reused ? "Study model" : "New fit" }} ·
           {{ report.validation.metric }}
           {{
-            significant(report.validation.value, st.project.significantDigits)
+            formatDecimal(
+              report.validation.value,
+              st.project.probabilityDecimalPlaces,
+            )
           }}
           over {{ report.validation.holdout }} held-out rows ·
           {{ report.validation.dropped }} excluded

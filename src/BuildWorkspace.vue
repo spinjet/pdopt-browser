@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { significant } from "./query-figure";
+import { formatDecimal } from "./query-figure";
 import GraphExport from "./GraphExport.vue";
 import { computed, nextTick, ref, watch } from "vue";
 import {
@@ -766,9 +766,9 @@ function parentAssignment(
                     </th>
                     <td v-for="(_, k) in selected.states" :key="k">
                       {{
-                        significant(
+                        formatDecimal(
                           selectedCpt.values[row * selected.states.length + k],
-                          st.project.significantDigits,
+                          st.project.probabilityDecimalPlaces,
                         )
                       }}<small
                         >count

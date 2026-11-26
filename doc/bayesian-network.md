@@ -34,6 +34,6 @@ jsAGrum computes node marginals. The engine constructs joint probabilities using
 
 ## Results and exports
 
-Significant digits control on-screen probability labels and figure labels. Sorting, cell masses, sampling, and machine-readable exports use the original values. The selected palette and global colour scale are shared by the on-screen heatmap and its SVG/PNG. Graph export uses a local Graphviz worker and honours connection direction and evidence/target colours.
+Decimal places control on-screen probability labels and figure labels. Sorting, cell masses, sampling, and machine-readable exports use the original values. The selected palette and global colour scale are shared by the on-screen heatmap and its SVG/PNG. Graph export uses a local Graphviz worker and honours connection direction and evidence/target colours.
 
 Query JSON stores the selected query’s evidence, variable states, and distributions. CSV table exports contain the displayed rows and original numeric probabilities. A sample ZIP contains the draws and a JSON manifest. The [sampling guide](design.md) covers its metadata and assumptions.

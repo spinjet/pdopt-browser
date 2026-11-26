@@ -65,7 +65,7 @@ const resultProject = computed(() => ({
     ? st.project.variables
     : (st.resultSnapshot ?? st.project).variables,
   heatmapPalette: st.project.heatmapPalette,
-  significantDigits: st.project.significantDigits,
+  probabilityDecimalPlaces: st.project.probabilityDecimalPlaces,
 }));
 const queryError = computed(() => {
   try {
@@ -447,7 +447,17 @@ function exportGroup() {
           }}
         </p>
       </div>
-      <button @click="editQuery">Edit query</button>
+      <div class="results-heading-actions">
+        <button
+          v-if="result"
+          class="primary"
+          :disabled="!st.current || st.busy"
+          @click="startStudy"
+        >
+          Start study from this query
+        </button>
+        <button @click="editQuery">Edit query</button>
+      </div>
     </header>
 
     <ProbabilityGraph
@@ -462,13 +472,6 @@ function exportGroup() {
       <template v-if="result && completedGroup">
         <div class="results-toolbar">
           <span v-if="st.current" class="tiny muted">Current results</span>
-          <button
-            class="primary"
-            :disabled="!st.current || st.busy"
-            @click="startStudy"
-          >
-            Start study from this query
-          </button>
           <details class="result-exports">
             <summary>Export results</summary>
             <div class="result-actions">
@@ -492,7 +495,7 @@ function exportGroup() {
           "
           @digits="
             (value) => {
-              st.project.significantDigits = value;
+              st.project.probabilityDecimalPlaces = value;
               st.touch('display');
             }
           "

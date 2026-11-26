@@ -76,7 +76,7 @@ test("branding, state aliases, uniform CPT training and presentation-only edits"
     .selectOption({ label: "Aluminium" });
   await run(page);
   await expect(page.locator(".marginal-table")).toContainText("Operational");
-  await expect(page.locator(".marginal-table")).toContainText("50.0%");
+  await expect(page.locator(".marginal-table")).toContainText("50.000%");
   await page
     .getByRole("button", { name: "Network graph", exact: true })
     .click();
@@ -144,7 +144,7 @@ test("joint heatmaps, tabbed groups, higher-dimensional filters and exports", as
     .press("Tab");
   await run(page);
   await page.getByLabel("Show values").check();
-  await expect(page.locator(".joint-heatmap")).toContainText("31.3%");
+  await expect(page.locator(".joint-heatmap")).toContainText("31.250%");
   await page
     .getByRole("button", { name: "Network graph", exact: true })
     .click();
@@ -165,7 +165,7 @@ test("joint heatmaps, tabbed groups, higher-dimensional filters and exports", as
     .selectOption({ label: "Steel" });
   await expect(page.locator(".combination-table tbody tr")).toHaveCount(4);
   await expect(page.getByText(/Displayed probability mass:/)).toContainText(
-    "50.0%",
+    "50.000%",
   );
   await page.getByText("Export results", { exact: true }).click();
   const jsonDownload = page.waitForEvent("download");
@@ -231,7 +231,7 @@ test("joint heatmaps, tabbed groups, higher-dimensional filters and exports", as
   await expect(page.locator(".probability-graph")).toContainText("Outdated");
   await run(page);
   await page.getByLabel("Show values").check();
-  await expect(page.locator(".joint-heatmap")).toContainText("37.5%");
+  await expect(page.locator(".joint-heatmap")).toContainText("37.500%");
 });
 
 test("v1 projects migrate to query views without changing saved CPTs", async ({

@@ -145,13 +145,13 @@ watch(
                   :title="
                     probabilityPercent(
                       row.probability ?? 0,
-                      st.project.significantDigits,
+                      st.project.probabilityDecimalPlaces,
                     )
                   "
                   >{{
                     probabilityPercent(
                       row.probability ?? 0,
-                      st.project.significantDigits,
+                      st.project.probabilityDecimalPlaces,
                     )
                   }}</b
                 >

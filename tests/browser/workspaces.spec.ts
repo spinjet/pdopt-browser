@@ -161,10 +161,8 @@ test("cantilever tutorial demonstrates bending failure and a mass-constrained de
   await page
     .getByRole("combobox", { name: "Heatmap palette" })
     .selectOption("Greens");
-  await page.getByRole("spinbutton", { name: "Significant digits" }).fill("6");
-  await page
-    .getByRole("spinbutton", { name: "Significant digits" })
-    .press("Tab");
+  await page.getByRole("spinbutton", { name: "Decimal places" }).fill("6");
+  await page.getByRole("spinbutton", { name: "Decimal places" }).press("Tab");
   await page
     .getByRole("button", { name: "Export figure", exact: true })
     .click();
@@ -440,13 +438,13 @@ test("a 10 by 10 result fits on a laptop and shares probabilities with the netwo
   await heatmap.locator('[data-cell="0-0"]').focus();
   await page.keyboard.press("ArrowRight");
   await expect(heatmap.locator('[data-cell="0-1"]')).toBeFocused();
-  await expect(page.locator(".heatmap-detail")).toContainText("10.0%");
+  await expect(page.locator(".heatmap-detail")).toContainText("10.000%");
   await page.getByLabel("Show values").check();
-  await expect(heatmap.locator('[data-cell="9-9"]')).toHaveText("0%");
+  await expect(heatmap.locator('[data-cell="9-9"]')).toHaveText("0.000%");
   await page.getByRole("button", { name: "Table", exact: true }).click();
   await expect(
     page.locator(".combination-table tbody tr").first(),
-  ).toContainText("10.0%");
+  ).toContainText("10.000%");
   await page.getByRole("button", { name: "Network graph" }).click();
   await expect(heatmap).toHaveCount(0);
   await expect(
@@ -478,7 +476,7 @@ test("a 10 by 10 result fits on a laptop and shares probabilities with the netwo
   const load = page
     .locator(".probability-node")
     .filter({ has: page.getByText("Load", { exact: true }) });
-  await expect(load).toContainText("100%");
+  await expect(load).toContainText("100.000%");
   await load.getByRole("button", { name: "All 10 states" }).click();
   await expect(load).toContainText("Load 9");
   await page

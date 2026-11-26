@@ -252,7 +252,7 @@ test("Graphviz renders escaped names, four-side ports and optional probability l
     targetIds: [p.variables[0].id],
     colors: { evidence: "#ffedc7", target: "#dbeafe" },
   });
-  expect(highlighted).toContain("33.3%");
+  expect(highlighted).toContain("33.333%");
   expect(highlighted).toContain('font-weight="bold"');
   expect(highlighted).toContain('fill="#dbeafe"');
   expect(highlighted).toMatch(/<path[^>]+d="M[^"]*C/);
@@ -405,8 +405,10 @@ test("engineering fork/join export places roots, outcomes and range in successiv
   expect(JSON.stringify(p)).toBe(original);
 });
 
-test("probability labels preserve tiny nonzero values at the selected precision", () => {
-  expect(probabilityPercent(0)).toBe("0%");
-  expect(probabilityPercent(1.2345678e-10, 4)).toBe("1.235e-8%");
-  expect(probabilityPercent(0.12345678, 8)).toBe("12.345678%");
+test("probability labels round to the requested decimal places", () => {
+  expect(probabilityPercent(0)).toBe("0.000%");
+  expect(probabilityPercent(1.2345678e-10, 4)).toBe("0.0000%");
+  expect(probabilityPercent(0.12345678, 3)).toBe("12.346%");
+  expect(probabilityPercent(0.12345678, 0)).toBe("12%");
+  expect(probabilityPercent(0.12345678, 8)).toBe("12.34567800%");
 });

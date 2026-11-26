@@ -118,7 +118,7 @@ test("four-side connections, exact numeric events, image and dependent sample do
   await expect(edge).toHaveAttribute("marker-end", `url('#${markerId}')`);
   await expect(
     page.locator("#results-panel .network-node").first(),
-  ).toContainText("0%");
+  ).toContainText("0.000%");
   await page
     .getByRole("button", { name: "Query results", exact: true })
     .click();

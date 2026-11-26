@@ -52,16 +52,16 @@ The regular compute worker handles CSV parsing, column generation, configuration
 
 Project downloads are UTF-8 JSON with a 100 MiB limit. `schemaVersion` is 4. The [Zod schemas](../src/domain.ts) are the authoritative field reference.
 
-| Field                                 | Meaning                                                                                                                                         |
-| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`, `name`, timestamps, `example`   | Project identity, title, and optional tutorial provenance                                                                                       |
-| `dataset`, `missingTokens`            | CSV descriptor, SHA-256, header order, delimiter, row count, optional source text, and the configured missing-value tokens                      |
-| `variables`, `edges`                  | UUID-addressed nodes and directed parent–child links. Display labels and coordinates are separate from state identities                         |
-| `cpts`                                | Parent order, flattened probabilities and counts, training signature, estimator, smoothing, dataset hash, and training time                     |
-| `queryGroups`                         | Stable IDs, editable names, ordered target IDs, and each query’s evidence map                                                                   |
-| `savedResults`                        | Array of completed entries keyed by query ID. Each has a SHA-256 fingerprint of inference inputs, a query key, node marginals, and joint arrays |
-| `study`                               | Frozen query snapshot, posterior grid, coverage, and per-variable design roles and settings                                                     |
-| `significantDigits`, `heatmapPalette` | Optional presentation settings. Defaults are 3 digits and Blues                                                                                 |
+| Field                                        | Meaning                                                                                                                                         |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`, `name`, timestamps, `example`          | Project identity, title, and optional tutorial provenance                                                                                       |
+| `dataset`, `missingTokens`                   | CSV descriptor, SHA-256, header order, delimiter, row count, optional source text, and the configured missing-value tokens                      |
+| `variables`, `edges`                         | UUID-addressed nodes and directed parent–child links. Display labels and coordinates are separate from state identities                         |
+| `cpts`                                       | Parent order, flattened probabilities and counts, training signature, estimator, smoothing, dataset hash, and training time                     |
+| `queryGroups`                                | Stable IDs, editable names, ordered target IDs, and each query’s evidence map                                                                   |
+| `savedResults`                               | Array of completed entries keyed by query ID. Each has a SHA-256 fingerprint of inference inputs, a query key, node marginals, and joint arrays |
+| `study`                                      | Frozen query snapshot, posterior grid, coverage, and per-variable design roles and settings                                                     |
+| `probabilityDecimalPlaces`, `heatmapPalette` | Optional presentation settings. Defaults are 3 decimal places and Blues                                                                         |
 
 Column IDs use zero-based source positions prefixed with `c`. Manual nodes have an empty column ID. State assignments are zero-based indices into the variable’s state list. Numeric bin bounds are stored alongside fitted ranges, cuts, and boundary choices. In legacy projects an absent bounds object represents open-ended outer bins. Versions 1 and 2 first pass through the legacy converters, then migrate to version 4. Version 3 upgrades directly, preserving trained CPTs and state indices. An older app cannot read a version 4 save.
 

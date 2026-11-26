@@ -99,7 +99,7 @@ test("CSV → build → training → query evidence → posterior → save/open 
   await expect(
     page.getByText("Current results", { exact: true }),
   ).toBeVisible();
-  await expect(page.locator(".marginal-table")).toContainText("75.0%");
+  await expect(page.locator(".marginal-table")).toContainText("75.000%");
   await page
     .getByRole("button", { name: "Export figure", exact: true })
     .click();
@@ -273,5 +273,5 @@ test("numeric cuts, precision-only edits, missing rows and exact-boundary eviden
   await expect(
     page.getByText("Current results", { exact: true }),
   ).toBeVisible();
-  await expect(page.locator(".marginal-table")).toContainText("75.0%");
+  await expect(page.locator(".marginal-table")).toContainText("75.000%");
 });

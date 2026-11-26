@@ -66,12 +66,12 @@ function escapeXml(value: string) {
     .replaceAll(">", "&gt;");
 }
 
-export function significant(value: number, digits = 3) {
-  return value === 0 ? "0" : value.toPrecision(digits);
+export function formatDecimal(value: number, digits = 3) {
+  return value.toFixed(digits);
 }
 
 export function probabilityPercent(p: number, digits = 3) {
-  return significant(p * 100, digits) + "%";
+  return formatDecimal(p * 100, digits) + "%";
 }
 
 function heatmapRgb(p: number, max: number, palette: FigurePalette) {
@@ -156,7 +156,7 @@ export function renderQueryFigure(
   const x = padding + rowLabelWidth + 12;
   const cellWidth =
     data.kind === "heatmap" && data.showValues
-      ? Math.max(67, measure(percent(9.9999999e-10)) + 12)
+      ? Math.max(67, measure(percent(data.max)) + 12)
       : 46;
   const columns =
     data.kind === "heatmap"
@@ -249,7 +249,7 @@ export function renderQueryFigure(
           label([percent(data.max / 2)], scaleX + 20, (top + bottom) / 2 + 4),
         );
     }
-    content.push(label(["0%"], scaleX + 20, bottom));
+    content.push(label([percent(0)], scaleX + 20, bottom));
     if (rotate) {
       for (const [j, lines] of columns.entries()) {
         const center = x + (j + 0.5) * colWidth;

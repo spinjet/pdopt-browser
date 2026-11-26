@@ -125,7 +125,7 @@ function layoutDot(
       states.push(
         ...v.states.map(
           (_, k) =>
-            `${stateLabel(v, k)}: ${probabilityPercent(values[k], p.significantDigits)}`,
+            `${stateLabel(v, k)}: ${probabilityPercent(values[k], p.probabilityDecimalPlaces)}`,
         ),
       );
     }

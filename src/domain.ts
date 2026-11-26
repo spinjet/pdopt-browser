@@ -192,7 +192,7 @@ export const studySchema = z.object({
 });
 export const projectSchema = projectCoreSchema.extend({
   schemaVersion: z.literal(4),
-  significantDigits: z.number().int().min(1).max(8).optional(),
+  probabilityDecimalPlaces: z.number().int().min(0).max(8).optional(),
   heatmapPalette: z
     .enum([
       "Blues",
@@ -363,6 +363,21 @@ export function validateProject(input: unknown): Project {
     input.schemaVersion === 3
   )
     input = { ...input, schemaVersion: 4 };
+  if (
+    input &&
+    typeof input === "object" &&
+    !("probabilityDecimalPlaces" in input) &&
+    "significantDigits" in input
+  ) {
+    const legacy = z
+      .number()
+      .int()
+      .min(1)
+      .max(8)
+      .safeParse(input.significantDigits);
+    if (legacy.success)
+      input = { ...input, probabilityDecimalPlaces: legacy.data };
+  }
   const p = projectSchema.parse(input),
     ids = new Set(p.variables.map((v) => v.id));
   if (ids.size !== p.variables.length)

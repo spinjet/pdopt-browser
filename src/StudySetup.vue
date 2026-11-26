@@ -225,7 +225,7 @@ function setCoverage(event: Event) {
   (event.target as HTMLInputElement).value = String(props.study.coverage * 100);
 }
 function percent(value: number) {
-  return probabilityPercent(value, st.project.significantDigits);
+  return probabilityPercent(value, st.project.probabilityDecimalPlaces);
 }
 function regionBound(region: StudyRegion, index: number) {
   const v = targets.value[index],
