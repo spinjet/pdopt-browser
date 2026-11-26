@@ -1,12 +1,18 @@
-# PDOPT-BN — browser prototype
+# PDOPT-BN — browser application
 
-A local-first Bayesian network workspace. Import CSV data, build a graph, train CPTs, and explore individual or **joint** posterior probabilities. Everything runs in your browser. The original Python/Streamlit application remains unchanged in the parent directory.
+A local-first Bayesian network workspace. Import CSV data, build a graph, train CPTs, and explore individual or **joint** posterior probabilities. Everything runs in your browser. The original Python/Streamlit application is maintained separately in [spinjet/bayesnet_tool](https://github.com/spinjet/bayesnet_tool).
+
+Live application: [pdopt.a-spinelli.com](https://pdopt.a-spinelli.com).
+
+This standalone repository was extracted from `web/` on the original repository’s `prototype/browser-bayesnet` branch at commit `01077b6ef7f85e5ca7f13ebb92a82a19fa2f2925`, preserving browser-specific history.
 
 ## Develop
 
-Install Node.js 22.12+ (Node 24 LTS recommended) and npm. From `web/`:
+Install Node.js 22.12+ (Node 24 LTS recommended) and npm. From the repository root:
 
 ```sh
+git clone https://github.com/spinjet/pdopt-browser.git
+cd pdopt-browser
 npm ci
 npm run dev
 ```
@@ -78,15 +84,15 @@ npm run test:e2e
 
 The default test browser is `/usr/bin/chromium`; set `CHROMIUM_PATH` to another local executable. For Playwright-managed browsers, install with `npx playwright install chromium firefox webkit` and set `BROWSER=chromium`, `BROWSER=firefox` or `BROWSER=webkit`. Actual Safari requires a macOS check.
 
-The optional reference generator runs from `web/` using the existing Python 3.11 environment:
+The optional reference generator runs from the repository root using a Python 3.11 environment with `pgmpy`, `numpy`, and `pandas` installed:
 
 ```sh
-/workspace/venvs/bayesnet/bin/python tools/reference/generate.py
+python tools/reference/generate.py
 ```
 
 Python is not shipped or called by the web runtime. See [hosting](docs/hosting.md), [verification](docs/verification.md), and the [iteration decisions](docs/decisions/002-workspaces-joint-queries.md).
 
-Development continues on `prototype/browser-bayesnet`; `main` and the original Python application are unchanged. Manual CPT editing, structure learning, offline installation, browser recovery and surrogate optimisation remain deferred.
+Development continues on `main` in this repository. Manual CPT editing, structure learning, offline installation, browser recovery and surrogate optimisation remain deferred.
 
 ## Events, graph images and sampling (0.3)
 

@@ -2,7 +2,7 @@
 
 ## Root deployment
 
-From `web/`, with Node.js 22.12+ and npm:
+From the repository root, with Node.js 22.12+ and npm:
 
 ```sh
 npm ci

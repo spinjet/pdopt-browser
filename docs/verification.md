@@ -34,7 +34,7 @@ Rendered screenshots were inspected at desktop dimensions; graph node sizing was
 
 ## Reproduce
 
-From `web/`:
+From the repository root:
 
 ```sh
 npm ci
