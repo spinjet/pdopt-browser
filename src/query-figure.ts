@@ -20,6 +20,9 @@ export type QueryFigureData =
 
 // Selected stops from the Matplotlib colormaps, interpolated in sRGB.
 export const figurePalettes = {
+  Blues: ["#f7fbff", "#c6dbef", "#6baed6", "#2171b5", "#08306b"],
+  Greens: ["#f7fcf5", "#c7e9c0", "#74c476", "#238b45", "#00441b"],
+  Greys: ["#ffffff", "#d9d9d9", "#969696", "#525252", "#252525"],
   teal: ["#eff5f4", "#357f7e"],
   viridis: ["#440154", "#3b528b", "#21918c", "#5ec962", "#fde725"],
   cividis: ["#00224e", "#434e6c", "#7d7c78", "#bcad6c", "#fee838"],
@@ -63,20 +66,35 @@ function escapeXml(value: string) {
     .replaceAll(">", "&gt;");
 }
 
-export function probabilityPercent(p: number) {
-  const value = p * 100;
-  return (
-    (value > 0 && value < 0.001 ? value.toPrecision(3) : value.toFixed(3)) + "%"
+export function significant(value: number, digits = 3) {
+  return value === 0 ? "0" : value.toPrecision(digits);
+}
+
+export function probabilityPercent(p: number, digits = 3) {
+  return significant(p * 100, digits) + "%";
+}
+
+function heatmapRgb(p: number, max: number, palette: FigurePalette) {
+  return paletteColor(
+    figurePalettes[palette].map(rgbFromHex),
+    max ? p / max : 0,
   );
 }
 
-export function heatmapColor(p: number, max: number) {
-  return `rgba(20,106,105,${max ? 0.07 + (0.8 * p) / max : 0.07})`;
+export function heatmapColor(
+  p: number,
+  max: number,
+  palette: FigurePalette = "Blues",
+) {
+  return `rgb(${heatmapRgb(p, max, palette).join(",")})`;
 }
 
-export function heatmapText(p: number, max: number) {
-  const alpha = max ? 0.07 + (0.8 * p) / max : 0.07;
-  return contrastText([20, 106, 105].map((c) => 255 * (1 - alpha) + c * alpha));
+export function heatmapText(
+  p: number,
+  max: number,
+  palette: FigurePalette = "Blues",
+) {
+  return contrastText(heatmapRgb(p, max, palette));
 }
 
 function wrapLabel(
@@ -117,8 +135,14 @@ function label(lines: string[], x: number, y: number, attributes = "") {
 export function renderQueryFigure(
   data: QueryFigureData,
   widthMm: number,
-  options: { caption: string; palette: FigurePalette; hiddenSlices: string[] },
+  options: {
+    caption: string;
+    palette: FigurePalette;
+    hiddenSlices: string[];
+    digits?: number;
+  },
 ) {
+  const percent = (p: number) => probabilityPercent(p, options.digits);
   const ctx = document.createElement("canvas").getContext("2d");
   if (ctx) ctx.font = `${fontSize}px ${font}`;
   const measure = (s: string) => ctx?.measureText(s).width ?? s.length * 8;
@@ -130,7 +154,10 @@ export function renderQueryFigure(
   );
   const rows = labels.map((s) => wrapLabel(s, rowLabelWidth, measure));
   const x = padding + rowLabelWidth + 12;
-  const cellWidth = data.kind === "heatmap" && data.showValues ? 67 : 46;
+  const cellWidth =
+    data.kind === "heatmap" && data.showValues
+      ? Math.max(67, measure(percent(9.9999999e-10)) + 12)
+      : 46;
   const columns =
     data.kind === "heatmap"
       ? data.columns.map((s) => wrapLabel(s, 120, measure))
@@ -151,10 +178,7 @@ export function renderQueryFigure(
   const scaleWidth =
     data.kind === "heatmap"
       ? Math.ceil(
-          Math.max(
-            measure(scaleTitle),
-            24 + measure(probabilityPercent(data.max)),
-          ),
+          Math.max(measure(scaleTitle), 24 + measure(percent(data.max))),
         )
       : 0;
   const width =
@@ -195,7 +219,7 @@ export function renderQueryFigure(
         if (data.showValues)
           content.push(
             label(
-              [probabilityPercent(probability)],
+              [percent(probability)],
               start + colWidth / 2,
               center,
               `text-anchor="middle" fill="${contrastText(rgb)}"`,
@@ -219,16 +243,10 @@ export function renderQueryFigure(
       `<rect data-colorbar="" x="${scaleX}" y="${top}" width="12" height="${bottom - top}" fill="${data.max ? "url(#probability-scale)" : colors[0]}" stroke="#b4bfc6" stroke-width="0.5" />`,
     );
     if (data.max) {
-      content.push(
-        label([probabilityPercent(data.max)], scaleX + 20, top + 10),
-      );
+      content.push(label([percent(data.max)], scaleX + 20, top + 10));
       if (bottom - top >= 75)
         content.push(
-          label(
-            [probabilityPercent(data.max / 2)],
-            scaleX + 20,
-            (top + bottom) / 2 + 4,
-          ),
+          label([percent(data.max / 2)], scaleX + 20, (top + bottom) / 2 + 4),
         );
     }
     content.push(label(["0%"], scaleX + 20, bottom));
@@ -292,7 +310,7 @@ export function renderQueryFigure(
         data.states[i].posterior,
       ].entries()) {
         bars.push(
-          `<rect x="${x}" y="${center - 11 + j * 12}" width="${p * plotWidth}" height="10" fill="${series[j].color}"><title>${series[j].name} ${probabilityPercent(p)}</title></rect>`,
+          `<rect x="${x}" y="${center - 11 + j * 12}" width="${p * plotWidth}" height="10" fill="${series[j].color}"><title>${series[j].name} ${percent(p)}</title></rect>`,
         );
       }
       y += rowHeight;
@@ -302,7 +320,9 @@ export function renderQueryFigure(
       content.push(
         `<path d="M${tick} ${top}V${y}" fill="none" stroke="#d8dfe4" />`,
       );
-      content.push(label([`${i * 25}%`], tick, y + 18, 'text-anchor="middle"'));
+      content.push(
+        label([percent(i / 4)], tick, y + 18, 'text-anchor="middle"'),
+      );
     }
     content.push(...bars);
     content.push(

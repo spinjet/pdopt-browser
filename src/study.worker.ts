@@ -3,6 +3,8 @@ import {
   datasetSchema,
   validateProject,
   resolveEvidence,
+  variableSchema,
+  studyValueSchema,
 } from "./domain";
 import { infer } from "./engine";
 import {
@@ -11,15 +13,90 @@ import {
   selectRegions,
   studyObservedCounts,
 } from "./study";
-import { fitStudy, type ResponseModel } from "./study-model";
+import {
+  fitResponse,
+  fitStudy,
+  surrogateFitKey,
+  type ResponseModel,
+} from "./study-model";
 import { searchStudy } from "./study-search";
 
+import { z } from "zod";
+import { MAX_VISUAL_SAMPLES } from "./sampling";
+
+const samplingFit = z.object({
+  key: z.string(),
+  datasetHash: z.string(),
+  dataset: datasetSchema.optional(),
+  missingTokens: z.array(z.string()),
+  predictors: z.array(variableSchema).min(1).max(100),
+  outputs: z.array(variableSchema).min(1).max(100),
+});
+let sampleModels: { key: string; models: ResponseModel[] } | undefined;
 let fitted: { key: string; models: ResponseModel[] } | undefined;
 self.onmessage = async ({ data }) => {
   const { id, op, payload } = data;
   const progress = (update: unknown) =>
     self.postMessage({ id, progress: update });
   try {
+    if (op === "sampling-fit") {
+      const fit = samplingFit.parse(payload);
+      if (fit.dataset && fit.dataset.hash !== fit.datasetHash)
+        throw new Error("Reattach the matching project dataset.");
+      const models: ResponseModel[] = [];
+      const reports = fit.outputs.map((output) => {
+        try {
+          const key = surrogateFitKey(
+            output,
+            fit.predictors,
+            fit.missingTokens,
+            fit.datasetHash,
+          );
+          const cached = fitted?.models.find((model) => model.fitKey === key);
+          if (!cached && !fit.dataset)
+            throw new Error("Attach the CSV to fit this output.");
+          const model =
+            cached ??
+            fitResponse(
+              fit.dataset!,
+              output,
+              fit.predictors,
+              fit.missingTokens,
+            );
+          models.push(model);
+          return {
+            id: output.id,
+            reused: !!cached,
+            validation: model.validation,
+          };
+        } catch (error) {
+          return { id: output.id, error: (error as Error).message };
+        }
+      });
+      sampleModels = { key: fit.key, models };
+      self.postMessage({ id, result: reports });
+      return;
+    }
+    if (op === "sampling-predict") {
+      const input = z
+        .object({
+          key: z.string(),
+          rows: z
+            .array(z.record(z.string(), studyValueSchema))
+            .max(MAX_VISUAL_SAMPLES),
+        })
+        .parse(payload);
+      if (!sampleModels || sampleModels.key !== input.key)
+        throw new Error("Fit surrogates for this sample before predicting.");
+      const result = Object.fromEntries(
+        sampleModels.models.map((model) => [
+          model.variable.id,
+          model.predict(input.rows),
+        ]),
+      );
+      self.postMessage({ id, result });
+      return;
+    }
     const study = studySchema.parse(payload.study);
     let result: unknown;
     if (op === "counts") {

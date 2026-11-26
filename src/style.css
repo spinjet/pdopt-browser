@@ -1268,6 +1268,22 @@ footer {
   align-items: center;
   gap: 8px;
 }
+.result-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.875rem;
+}
+.query-select {
+  min-width: 0;
+}
+.query-select select {
+  max-width: min(15rem, 56vw);
+}
+.digits-control input {
+  width: 4rem;
+  padding-block: 5px;
+}
 .results-toolbar {
   margin-bottom: 8px;
 }

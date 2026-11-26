@@ -8,7 +8,8 @@ import { download } from "./files";
 import {
   heatmapColor,
   heatmapText,
-  probabilityPercent as percent,
+  probabilityPercent,
+  figurePalettes,
   type QueryFigureData,
 } from "./query-figure";
 const props = defineProps<{
@@ -17,6 +18,16 @@ const props = defineProps<{
   current: boolean;
   caption: string;
 }>();
+const emit = defineEmits<{
+  palette: [NonNullable<Project["heatmapPalette"]>];
+  digits: [number];
+}>();
+const palette = computed(() => props.project.heatmapPalette ?? "Blues");
+const gradient = computed(
+  () => `linear-gradient(to right, ${figurePalettes[palette.value].join(",")})`,
+);
+const digits = computed(() => props.project.significantDigits ?? 3);
+const percent = (p: number) => probabilityPercent(p, digits.value);
 const presentation = ref<"diagram" | "table">("diagram");
 const rowAxis = ref(0),
   columnAxis = ref(1);
@@ -217,10 +228,31 @@ const figure = computed<QueryFigureData>(() => {
         v-if="presentation === 'diagram'"
         :data="figure"
         :caption="caption"
+        :heatmap-palette="palette"
+        :digits="digits"
       />
       <button v-else type="button" @click="exportTable">
         Export table CSV
       </button>
+      <label class="result-inline digits-control"
+        >Significant digits
+        <input
+          type="number"
+          min="1"
+          max="8"
+          step="1"
+          :value="digits"
+          @change="
+            (e) => {
+              const input = e.target as HTMLInputElement;
+              const value = input.valueAsNumber;
+              if (Number.isInteger(value) && value >= 1 && value <= 8)
+                emit('digits', value);
+              else input.value = String(digits);
+            }
+          "
+        />
+      </label>
     </div>
     <template v-if="variables.length === 1">
       <div v-if="presentation === 'diagram'" class="chart-legend">
@@ -305,8 +337,32 @@ const figure = computed<QueryFigureData>(() => {
         <label class="check"
           ><input type="checkbox" v-model="showValues" />Show values</label
         >
+        <label
+          >Heatmap palette
+          <select
+            :value="palette"
+            @change="
+              emit(
+                'palette',
+                ($event.target as HTMLSelectElement).value as typeof palette,
+              )
+            "
+          >
+            <option
+              v-for="(_, name) in figurePalettes"
+              :key="name"
+              :value="name"
+            >
+              {{ name }}
+            </option>
+          </select>
+        </label>
         <div class="heatmap-scale" aria-label="Joint probability scale">
-          <span>0%</span><span class="heatmap-gradient"></span
+          <span>0%</span
+          ><span
+            class="heatmap-gradient"
+            :style="{ background: gradient }"
+          ></span
           ><span>{{ percent(max) }}</span>
         </div>
       </div>
@@ -354,7 +410,7 @@ const figure = computed<QueryFigureData>(() => {
                 <button
                   :data-cell="i + '-' + j"
                   :aria-label="cellDescription(i, j)"
-                  :title="String(cell(i, j))"
+                  :title="percent(cell(i, j))"
                   :aria-pressed="
                     selectedCell.row === i && selectedCell.col === j
                   "
@@ -362,8 +418,8 @@ const figure = computed<QueryFigureData>(() => {
                     selectedCell.row === i && selectedCell.col === j ? 0 : -1
                   "
                   :style="{
-                    background: heatmapColor(cell(i, j), max),
-                    color: heatmapText(cell(i, j), max),
+                    background: heatmapColor(cell(i, j), max, palette),
+                    color: heatmapText(cell(i, j), max, palette),
                   }"
                   @mouseenter="hoveredCell = { row: i, col: j }"
                   @focus="
@@ -428,7 +484,7 @@ const figure = computed<QueryFigureData>(() => {
                 {{ stateLabel(v, row.states[i]) }}
               </th>
               <td>{{ percent(row.prior) }}</td>
-              <td :title="String(row.probability)">
+              <td :title="percent(row.probability)">
                 {{ percent(row.probability) }}
               </td>
             </tr>

@@ -8,7 +8,12 @@ import {
   type QueryFigureData,
 } from "./query-figure";
 
-const props = defineProps<{ data: QueryFigureData; caption: string }>();
+const props = defineProps<{
+  data: QueryFigureData;
+  caption: string;
+  heatmapPalette: FigurePalette;
+  digits: number;
+}>();
 const dialog = ref<HTMLDialogElement>();
 const open = ref(false);
 const format = ref<"svg" | "png">("svg");
@@ -43,7 +48,9 @@ const figure = computed(() =>
   open.value && validWidth.value
     ? renderQueryFigure(props.data, widthMm.value, {
         caption: caption.value,
-        palette: palette.value,
+        palette:
+          props.data.kind === "heatmap" ? props.heatmapPalette : palette.value,
+        digits: props.digits,
         hiddenSlices: hiddenSlices.value,
       })
     : undefined,
@@ -137,7 +144,7 @@ async function save() {
               <option :value="600">600 dpi</option>
             </select>
           </label>
-          <label class="field">
+          <label v-if="data.kind === 'bars'" class="field">
             Colour scheme
             <select v-model="palette">
               <option

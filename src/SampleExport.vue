@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, ref, shallowRef, watch } from "vue";
+import SamplePredictions from "./SamplePredictions.vue";
+import type { SampleOptions } from "./sampling";
 import { useProject } from "./store";
 import { downloadBytes } from "./files";
-import { MAX_VISUAL_SAMPLES } from "./sampling";
+import { defaultSamplingBounds, MAX_VISUAL_SAMPLES } from "./sampling";
 const QuerySampleExplore = defineAsyncComponent(
   () => import("./QuerySampleExplore.vue"),
 );
@@ -23,21 +25,30 @@ const variables = computed(
 const sample =
   shallowRef<Awaited<ReturnType<typeof st.sampleForExploration>>>();
 const generation = ref(0);
+const generatedOptions = shallowRef<SampleOptions>();
+const augmented = shallowRef<NonNullable<typeof sample.value>>();
+function options() {
+  return {
+    count: count.value,
+    seed: seed.value,
+    bounds: JSON.parse(JSON.stringify(bounds.value)),
+  };
+}
 watch(
   () => st.results,
   () => {
     sample.value = undefined;
+    augmented.value = undefined;
   },
 );
 async function visualise() {
-  const result = await st.sampleForExploration(props.groupId, {
-    count: count.value,
-    seed: seed.value,
-    bounds: bounds.value,
-  });
+  const settings = options();
+  const result = await st.sampleForExploration(props.groupId, settings);
   if (result) {
     generation.value++;
     sample.value = result;
+    generatedOptions.value = settings;
+    augmented.value = undefined;
     settingsOpen.value = false;
   }
 }
@@ -46,11 +57,7 @@ watch(
   variables,
   (vs) => {
     for (const v of vs)
-      if (!bounds.value[v.id])
-        bounds.value[v.id] = {
-          min: v.binning!.fittedRange[0],
-          max: v.binning!.fittedRange[1],
-        };
+      if (!bounds.value[v.id]) bounds.value[v.id] = defaultSamplingBounds(v);
   },
   { immediate: true },
 );
@@ -118,7 +125,18 @@ async function run() {
       state.
     </p>
   </details>
-  <QuerySampleExplore v-if="sample" :key="generation" v-bind="sample" />
+  <SamplePredictions
+    v-if="sample && generatedOptions"
+    :key="generation"
+    :sample="sample"
+    :options="generatedOptions"
+    @change="(value) => (augmented = value)"
+  />
+  <QuerySampleExplore
+    v-if="sample"
+    :key="`${generation}-${augmented ? 'augmented' : 'sampled'}`"
+    v-bind="augmented ?? sample"
+  />
   <p v-else class="empty-results">
     Generate samples to explore the query’s distribution.
   </p>

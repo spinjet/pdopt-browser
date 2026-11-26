@@ -15,6 +15,9 @@ import HelpPanel from "./HelpPanel.vue";
 import AboutPanel from "./AboutPanel.vue";
 import BuildWorkspace from "./BuildWorkspace.vue";
 import InferenceWorkspace from "./InferenceWorkspace.vue";
+const SamplingWorkspace = defineAsyncComponent(
+  () => import("./SamplingWorkspace.vue"),
+);
 const StudyWorkspace = defineAsyncComponent(
   () => import("./StudyWorkspace.vue"),
 );
@@ -22,10 +25,11 @@ const st = useProject(),
   openInput = ref<HTMLInputElement>();
 const helpOpen = ref(false);
 const helpWidth = ref(380);
-const resultView = ref<"graph" | "distribution" | "samples">("distribution");
+const resultView = ref<"graph" | "distribution">("distribution");
 const studyView = ref<"setup" | "run" | "explore">("setup");
 const helpView = computed(() => {
   if (st.activeTab === "results") return resultView.value;
+  if (st.activeTab === "sampling") return "samples";
   if (st.activeTab === "study") return studyView.value;
   return st.activeTab;
 });
@@ -36,6 +40,7 @@ function closeHelp() {
 const workspaceTabs = [
   { id: "data", label: "Data" },
   { id: "exploration", label: "Probabilistic Exploration" },
+  { id: "sampling", label: "Sampling" },
   { id: "study", label: "Optimisation Study" },
 ] as const;
 const explorationTabs = [
@@ -48,7 +53,9 @@ type WorkspaceTab = (typeof workspaceTabs)[number]["id"];
 type ExplorationTab = (typeof explorationTabs)[number]["id"];
 
 const workspaceTab = computed<WorkspaceTab>(() =>
-  st.activeTab === "data" || st.activeTab === "study"
+  st.activeTab === "data" ||
+  st.activeTab === "study" ||
+  st.activeTab === "sampling"
     ? st.activeTab
     : "exploration",
 );
@@ -57,7 +64,8 @@ watch(
   [() => st.project.id, () => st.activeTab],
   ([projectId, tab], [previousId]) => {
     if (projectId !== previousId) lastExplorationTab.value = "network";
-    if (tab !== "data" && tab !== "study") lastExplorationTab.value = tab;
+    if (tab !== "data" && tab !== "study" && tab !== "sampling")
+      lastExplorationTab.value = tab;
   },
   { flush: "sync" },
 );
@@ -78,11 +86,18 @@ async function open(file: File | undefined) {
   }
   if (openInput.value) openInput.value.value = "";
 }
-function save() {
+watch(
+  () => st.project.name,
+  (name) => {
+    document.title = `${name.trim() || "Untitled network"} · PDOPT-BN`;
+  },
+  { immediate: true },
+);
+async function save(includeResults = true) {
   try {
     download(
       `${st.project.name.replace(/[^\p{L}\p{N}_-]/gu, "_")}.bayesnet.json`,
-      st.savedProject(st.embedDataset),
+      await st.savedProject(st.embedDataset, includeResults),
     );
     st.dirty = false;
     st.notice =
@@ -153,7 +168,10 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
         </button>
         <button @click="st.newProject()" :disabled="st.busy">New</button
         ><button @click="openInput?.click()" :disabled="st.busy">Open</button
-        ><button @click="save">Save project</button>
+        ><button @click="save()">Save project</button>
+        <button v-if="st.completedQueryIds.length" @click="save(false)">
+          Save without cached results
+        </button>
       </nav>
     </header>
     <div class="statusbar">
@@ -189,6 +207,11 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
     </div>
     <div v-if="st.notice" class="banner success" role="status">
       {{ st.notice }}
+    </div>
+    <div v-if="st.batchRunning" class="banner working" role="status">
+      Running queries locally…<button @click="st.cancelQueries()">
+        Cancel queries
+      </button>
     </div>
     <div v-if="st.busy" class="banner working" role="status">
       Computing locally…<button @click="st.cancel()">Cancel computation</button>
@@ -235,6 +258,10 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
           <BuildWorkspace />
           <InferenceWorkspace v-model:view="resultView" />
         </div>
+        <SamplingWorkspace
+          v-if="st.current || st.activeTab === 'sampling'"
+          v-show="st.activeTab === 'sampling'"
+        />
         <StudyWorkspace
           v-if="st.activeTab === 'study' || st.project.study"
           v-model:view="studyView"

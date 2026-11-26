@@ -1,3 +1,4 @@
+import { probabilityPercent } from "../src/query-figure";
 import { test, expect } from "vitest";
 import { createInProcessBN } from "jsagrum";
 import { infer } from "../src/engine";
@@ -152,11 +153,19 @@ test("next representable bounds preserve signed and extreme doubles", () => {
 });
 test("v2 migration preserves CPT validity, evidence and layout; ports are presentation only", async () => {
   const { p } = await setup();
-  const old = { ...p, schemaVersion: 2 };
+  const old = {
+    ...p,
+    schemaVersion: 2,
+    variables: p.variables.map((v) => {
+      if (!v.binning) return v;
+      const { bounds, ...binning } = v.binning;
+      return { ...v, binning };
+    }),
+  };
   const migrated = validateProject(old);
-  expect(migrated.schemaVersion).toBe(3);
+  expect(migrated.schemaVersion).toBe(4);
   expect(migrated.cpts).toEqual(p.cpts);
-  expect(migrated.variables).toEqual(p.variables);
+  expect(migrated.variables).toEqual(old.variables);
   expect(migrated.edges[0].sourceHandle).toBe("right");
   const before = signature(p, p.variables[1].id);
   p.edges[0].sourceHandle = "bottom";
@@ -243,7 +252,7 @@ test("Graphviz renders escaped names, four-side ports and optional probability l
     targetIds: [p.variables[0].id],
     colors: { evidence: "#ffedc7", target: "#dbeafe" },
   });
-  expect(highlighted).toContain("33.333%");
+  expect(highlighted).toContain("33.3%");
   expect(highlighted).toContain('font-weight="bold"');
   expect(highlighted).toContain('fill="#dbeafe"');
   expect(highlighted).toMatch(/<path[^>]+d="M[^"]*C/);
@@ -394,4 +403,10 @@ test("engineering fork/join export places roots, outcomes and range in successiv
     expect(svg).toContain("Skin Root Thickness [mm]");
   }
   expect(JSON.stringify(p)).toBe(original);
+});
+
+test("probability labels preserve tiny nonzero values at the selected precision", () => {
+  expect(probabilityPercent(0)).toBe("0%");
+  expect(probabilityPercent(1.2345678e-10, 4)).toBe("1.235e-8%");
+  expect(probabilityPercent(0.12345678, 8)).toBe("12.345678%");
 });

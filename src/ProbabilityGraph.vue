@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { probabilityPercent } from "./query-figure";
 import GraphExport from "./GraphExport.vue";
 import { computed, ref, watch } from "vue";
 import {
@@ -140,8 +141,19 @@ watch(
                 class="node-probability"
               >
                 <span :title="row.label">{{ row.label }}</span
-                ><b :title="String(row.probability)"
-                  >{{ ((row.probability ?? 0) * 100).toFixed(1) }}%</b
+                ><b
+                  :title="
+                    probabilityPercent(
+                      row.probability ?? 0,
+                      st.project.significantDigits,
+                    )
+                  "
+                  >{{
+                    probabilityPercent(
+                      row.probability ?? 0,
+                      st.project.significantDigits,
+                    )
+                  }}</b
                 >
                 <div
                   class="prob-bar posterior"

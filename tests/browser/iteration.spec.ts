@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { probabilityPercent } from "../../src/query-figure";
 import { readFile } from "node:fs/promises";
 import Papa from "papaparse";
 import { openDiscreteFixture, openExploration } from "./fixtures";
@@ -18,7 +19,9 @@ async function train(page: Page) {
 }
 async function run(page: Page) {
   await openExploration(page, "Queries");
-  await page.getByRole("button", { name: "Run query", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Run selected query", exact: true })
+    .click();
   await expect(
     page.getByText("Current results", { exact: true }),
   ).toBeVisible();
@@ -27,7 +30,7 @@ test("branding, state aliases, uniform CPT training and presentation-only edits"
   page,
 }) => {
   await load(page);
-  await expect(page).toHaveTitle("PDOPT-BN");
+  await expect(page).toHaveTitle("Untitled network · PDOPT-BN");
   await expect(
     page.getByRole("tab", { name: "Network", exact: true }),
   ).toHaveAttribute("aria-selected", "true");
@@ -50,7 +53,7 @@ test("branding, state aliases, uniform CPT training and presentation-only edits"
     .selectOption("uniform");
   await openExploration(page, "Queries");
   await expect(
-    page.getByRole("button", { name: "Run query", exact: true }),
+    page.getByRole("button", { name: "Run selected query", exact: true }),
   ).toBeDisabled();
   await openExploration(page, "States & training");
   await train(page);
@@ -73,7 +76,7 @@ test("branding, state aliases, uniform CPT training and presentation-only edits"
     .selectOption({ label: "Aluminium" });
   await run(page);
   await expect(page.locator(".marginal-table")).toContainText("Operational");
-  await expect(page.locator(".marginal-table")).toContainText("50.000%");
+  await expect(page.locator(".marginal-table")).toContainText("50.0%");
   await page
     .getByRole("button", { name: "Network graph", exact: true })
     .click();
@@ -99,7 +102,7 @@ test("branding, state aliases, uniform CPT training and presentation-only edits"
   await page.getByRole("button", { name: "Save project", exact: true }).click();
   const file = await download;
   const saved = JSON.parse(await readFile((await file.path())!, "utf8"));
-  expect(saved.schemaVersion).toBe(3);
+  expect(saved.schemaVersion).toBe(4);
   const v = saved.variables.find((v: any) => v.label === "Failure");
   expect(v.states).toEqual(["No", "Yes"]);
   expect(v.stateLabels).toEqual(["Working", "Failed"]);
@@ -141,7 +144,7 @@ test("joint heatmaps, tabbed groups, higher-dimensional filters and exports", as
     .press("Tab");
   await run(page);
   await page.getByLabel("Show values").check();
-  await expect(page.locator(".joint-heatmap")).toContainText("31.250%");
+  await expect(page.locator(".joint-heatmap")).toContainText("31.3%");
   await page
     .getByRole("button", { name: "Network graph", exact: true })
     .click();
@@ -162,7 +165,7 @@ test("joint heatmaps, tabbed groups, higher-dimensional filters and exports", as
     .selectOption({ label: "Steel" });
   await expect(page.locator(".combination-table tbody tr")).toHaveCount(4);
   await expect(page.getByText(/Displayed probability mass:/)).toContainText(
-    "50.000%",
+    "50.0%",
   );
   await page.getByText("Export results", { exact: true }).click();
   const jsonDownload = page.waitForEvent("download");
@@ -207,7 +210,7 @@ test("joint heatmaps, tabbed groups, higher-dimensional filters and exports", as
     .selectOption({ label: "Yes" });
   await expect(
     page.locator('.joint-heatmap [data-cell="1-0"]'),
-  ).toHaveAttribute("title", String(json.posterior[3]));
+  ).toHaveAttribute("title", probabilityPercent(json.posterior[3]));
   await openExploration(page, "Queries");
   await page.getByRole("tab", { name: "Load × Failure", exact: true }).click();
   await run(page);
@@ -227,7 +230,8 @@ test("joint heatmaps, tabbed groups, higher-dimensional filters and exports", as
     .click();
   await expect(page.locator(".probability-graph")).toContainText("Outdated");
   await run(page);
-  await expect(page.locator(".joint-heatmap")).toContainText("37.500%");
+  await page.getByLabel("Show values").check();
+  await expect(page.locator(".joint-heatmap")).toContainText("37.5%");
 });
 
 test("v1 projects migrate to query views without changing saved CPTs", async ({
@@ -271,7 +275,7 @@ test("v1 projects migrate to query views without changing saved CPTs", async ({
   const saved = JSON.parse(
     await readFile((await savedDownload.path())!, "utf8"),
   );
-  expect(saved.schemaVersion).toBe(3);
+  expect(saved.schemaVersion).toBe(4);
   expect(saved.cpts.map((c: any) => c.values)).toEqual(values);
   expect(saved.queryGroups).toHaveLength(3);
   expect(

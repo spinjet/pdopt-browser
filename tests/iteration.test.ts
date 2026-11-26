@@ -137,7 +137,7 @@ test("validated v1 migration retains numerical artifacts and creates query group
     ]);
   old.evidence = { [old.variables[0].id]: 1 };
   const migrated = validateProject(old);
-  expect(migrated.schemaVersion).toBe(3);
+  expect(migrated.schemaVersion).toBe(4);
   expect(migrated.queryGroups.map((g) => g.targetIds)).toEqual(
     old.targetIds.map((id: string) => [id]),
   );

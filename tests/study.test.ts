@@ -15,6 +15,7 @@ import {
 } from "../src/study";
 import { searchStudy } from "../src/study-search";
 import {
+  fitResponse,
   fitStudy,
   scoreValidation,
   type TrainingSplit,
@@ -42,6 +43,7 @@ async function beam() {
       "manual",
       cuts.length + 1,
       cuts,
+      { lower: "unbounded", upper: "unbounded" },
     );
   });
   const [w, d, load, material, , , failure, mass] = project.variables;
@@ -106,6 +108,18 @@ test("fits the beam responses, preserves joint region bounds and checks surrogat
   const { retained } = checkStudy(study, dataset);
   const models = fitStudy(study, dataset, () => {});
   const run = searchStudy(study, retained, models, () => {});
+  const studyMass = models.find((model) => model.variable.id === mass.id)!;
+  const samplingMass = fitResponse(
+    dataset,
+    mass,
+    studyMass.validation.predictors.map((id) =>
+      project.variables.find((v) => v.id === id)!,
+    ),
+    project.missingTokens,
+  );
+  const designs = run.designs.slice(0, 5).map((design) => design.inputs);
+  expect(samplingMass.fitKey).toBe(studyMass.fitKey);
+  expect(samplingMass.predict(designs)).toEqual(studyMass.predict(designs));
   const front = run.designs.filter((x) => x.predicted.pareto);
   expect(front.length).toBeGreaterThan(0);
   expect(run.validation.every((row) => row.holdout > 0)).toBe(true);

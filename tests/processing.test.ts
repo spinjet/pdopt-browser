@@ -59,12 +59,14 @@ test("constant, invalid numeric and manual cuts are rejected", () => {
   expect(() => cutsFor([0, 1], "manual", 3, [1, 1])).toThrow("strictly");
   expect(() => cutsFor([0, NaN], "equalWidth", 3)).toThrow("finite");
 });
-test("numeric cuts include upper bin and apply to outside-range observations", async () => {
+test("numeric cuts enter the upper bin and finite outer endpoints are included", async () => {
   const { d, p } = await fixture("A,B\n0,no\n10,no\n20,yes\n30,yes\n");
   const v = configureVariable(d, p, "c0", "discretised", "manual", 3, [10, 20]);
-  expect(["-100", "0", "10", "20", "100"].map((x) => encode(v, x))).toEqual([
-    0, 0, 1, 2, 2,
+  expect(["0", "10", "20", "30"].map((x) => encode(v, x))).toEqual([
+    0, 1, 2, 2,
   ]);
+  expect(() => encode(v, "-100")).toThrow("outside");
+  expect(() => encode(v, "100")).toThrow("outside");
   expect(() => encode(v, "bad")).toThrow();
 });
 test("hand-counted MLE and Dirichlet CPTs", async () => {
@@ -149,4 +151,32 @@ test("CPT allocation is guarded before counting; large drafts can still be saved
   }));
   expect(() => train(d, p, "dirichlet", 1)).toThrow("1,000,000");
   expect(validateProject(p).cpts).toEqual([]);
+});
+
+test("zero lower limit excludes negative training rows and old projects keep open bins", async () => {
+  const { d, p } = await fixture("A,B\n-5,no\n0,no\n10,yes\n20,yes\n");
+  const v = configureVariable(d, p, "c0", "discretised", "manual", 2, [10], {
+    lower: "zero",
+    upper: "observed",
+  });
+  p.variables = [v];
+  p.edges = [];
+  expect(train(d, p, "mle", 0)).toMatchObject({ retained: 3, dropped: 1 });
+  expect(encode(v, "0")).toBe(0);
+  expect(encode(v, "20")).toBe(1);
+  expect(() => encode(v, "-5")).toThrow("outside");
+  expect(() =>
+    configureVariable(d, p, "c0", "discretised", "manual", 2, [-1], {
+      lower: "zero",
+      upper: "observed",
+    }),
+  ).toThrow("lower bound");
+  const { bounds, ...binning } = v.binning!;
+  const old = validateProject({
+    ...p,
+    schemaVersion: 3,
+    variables: [{ ...v, binning }],
+  });
+  expect(old.schemaVersion).toBe(4);
+  expect(encode(old.variables[0], "-5")).toBe(0);
 });
