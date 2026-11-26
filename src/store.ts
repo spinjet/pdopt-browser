@@ -1,4 +1,4 @@
-import { ref, computed } from "vue";
+import { ref, computed, shallowReactive } from "vue";
 import { defineStore } from "pinia";
 import { z } from "zod";
 import { ComputeClient } from "./client";
@@ -11,26 +11,17 @@ import {
   variableSchema,
   cptSchema,
   evidenceSchema,
+  resultSchema,
+  inferenceReady,
+  resolveEvidence,
   type Project,
   type QueryGroup,
   type Dataset,
   LIMITS,
   thresholdCut,
   type EvidenceValue,
+  type BinBounds,
 } from "./domain";
-const resultSchema = z.object({
-  prior: z.record(z.string(), z.array(z.number())),
-  posterior: z.record(z.string(), z.array(z.number())),
-  groups: z.record(
-    z.string(),
-    z.object({
-      targetIds: z.array(z.string()),
-      shape: z.array(z.number().int()),
-      prior: z.array(z.number()),
-      posterior: z.array(z.number()),
-    }),
-  ),
-});
 export const useProject = defineStore("project", () => {
   const project = ref<Project>(emptyProject()),
     dataset = ref<Dataset>(),
@@ -39,21 +30,114 @@ export const useProject = defineStore("project", () => {
     notice = ref(""),
     dirty = ref(false),
     selected = ref("");
-  const revisions = ref({ model: 0, data: 0, query: 0 }),
-    results = ref<z.infer<typeof resultSchema>>(),
-    resultStamp = ref("");
+  const revisions = ref({ model: 0, data: 0, query: 0 });
   const activeTab = ref<
-      "data" | "network" | "states" | "queries" | "results" | "study"
+      | "data"
+      | "network"
+      | "states"
+      | "queries"
+      | "results"
+      | "sampling"
+      | "study"
     >("data"),
     embedDataset = ref(true);
   const activeGroupId = ref("");
   const activeQuery = computed(() =>
     project.value.queryGroups.find((group) => group.id === activeGroupId.value),
   );
-  const resultSnapshot = ref<Project>();
+  type Result = z.infer<typeof resultSchema>;
+  type Cached = {
+    snapshot: Project;
+    result: Result;
+    modelKey: string;
+    queryKey: string;
+    modelRevision: number;
+  };
+  const cache = shallowReactive(new Map<string, Cached>());
+  const queryStatuses = ref<
+    Record<
+      string,
+      {
+        state: "queued" | "running" | "completed" | "failed" | "cancelled";
+        message?: string;
+      }
+    >
+  >({});
+  const batchRunning = ref(false);
+  const queryClients = new Set<ComputeClient>();
+  let batchId = 0;
+  const modelKey = computed(() =>
+    JSON.stringify([
+      project.value.variables.map(
+        ({ id, columnId, representation, states, binning, parameterMode }) => [
+          id,
+          columnId,
+          representation,
+          states,
+          binning,
+          parameterMode,
+        ],
+      ),
+      project.value.edges.map(({ source, target }) => [source, target]).sort(),
+      project.value.cpts,
+      project.value.missingTokens,
+    ]),
+  );
+  const queryKey = (g: QueryGroup) =>
+    JSON.stringify([
+      g.targetIds,
+      Object.entries(g.evidence ?? {}).sort(([a], [b]) => a.localeCompare(b)),
+    ]);
+  const selectedResult = computed(() => cache.get(activeGroupId.value));
+  const results = computed(() => selectedResult.value?.result);
+  const resultSnapshot = computed(() => selectedResult.value?.snapshot);
+  const resultStamp = computed(() => selectedResult.value);
+  function isCurrent(id: string, entry: Cached) {
+    const group = project.value.queryGroups.find((g) => g.id === id);
+    return (
+      group &&
+      entry.modelRevision === revisions.value.model &&
+      entry.modelKey === modelKey.value &&
+      entry.queryKey === queryKey(group)
+    );
+  }
+  const completedQueryIds = computed(() => [...cache.keys()]);
+  async function modelHash(key: string) {
+    const bytes = await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(key),
+    );
+    return Array.from(new Uint8Array(bytes), (b) =>
+      b.toString(16).padStart(2, "0"),
+    ).join("");
+  }
+  function snapshotFor(model: Project, group: QueryGroup): Project {
+    return { ...model, evidence: group.evidence ?? {}, queryGroups: [group] };
+  }
+  function copyModel(p: Project): Project {
+    const { study, savedResults, dataset, ...rest } = p;
+    const descriptor = dataset && { ...dataset, embeddedCsv: undefined };
+    return JSON.parse(JSON.stringify({ ...rest, dataset: descriptor }));
+  }
+  function resetQueries() {
+    cancelQueries();
+    cache.clear();
+    queryStatuses.value = {};
+    activeGroupId.value = "";
+  }
+  function cancelQueries() {
+    batchId++;
+    for (const client of queryClients) client.cancel();
+    queryClients.clear();
+    for (const status of Object.values(queryStatuses.value))
+      if (status.state === "queued" || status.state === "running")
+        status.state = "cancelled";
+    batchRunning.value = false;
+  }
   const trainingPreview = ref<{
     retained: number;
     dropped: number;
+    outOfRange: number;
     counts: number[][];
     stamp: string;
   }>();
@@ -62,7 +146,9 @@ export const useProject = defineStore("project", () => {
   const trainingStamp = () =>
     `${revisions.value.model}/${revisions.value.data}`;
   const current = computed(
-    () => !!results.value && resultStamp.value === stamp(),
+    () =>
+      !!selectedResult.value &&
+      !!isCurrent(activeGroupId.value, selectedResult.value),
   );
   const cycles = computed(() => cyclicNodes(project.value));
   function touch(kind: "model" | "data" | "query" | "display" = "model") {
@@ -131,9 +217,7 @@ export const useProject = defineStore("project", () => {
     embedDataset.value = true;
     trainingPreview.value = undefined;
     selected.value = "";
-    results.value = undefined;
-    resultSnapshot.value = undefined;
-    resultStamp.value = "";
+    resetQueries();
     touch("data");
     return true;
   }
@@ -217,6 +301,7 @@ export const useProject = defineStore("project", () => {
     method: "manual" | "equalWidth" | "quantile" = "equalWidth",
     bins = 3,
     manual: number[] = [],
+    bounds?: BinBounds,
   ) {
     if (
       project.value.variables.length >= 100 &&
@@ -226,12 +311,21 @@ export const useProject = defineStore("project", () => {
       return;
     }
     const selectedAtStart = selected.value;
-    const v = await job(
+    const preview = await job(
       "configure",
-      payload({ columnId, representation, method, bins, manual }),
-      (x) => variableSchema.parse(x),
+      payload({ columnId, representation, method, bins, manual, bounds }),
+      (x) =>
+        z.object({ variable: variableSchema, excluded: z.number() }).parse(x),
     );
-    if (!v) return;
+    if (!preview) return;
+    if (
+      preview.excluded &&
+      !confirm(
+        `${preview.excluded} observations fall outside these bounds and will be excluded from training. Apply the settings?`,
+      )
+    )
+      return;
+    const { variable: v } = preview;
     const old = project.value.variables.findIndex((x) => x.id === v.id);
     if (old >= 0) {
       const previousVariable = project.value.variables[old];
@@ -242,6 +336,11 @@ export const useProject = defineStore("project", () => {
         JSON.stringify(v.states) !== JSON.stringify(previousVariable.states)
       )
         clearQueryEvidenceFor(v.id, v.representation !== "categorical");
+      if (
+        JSON.stringify(v.binning?.bounds) !==
+        JSON.stringify(previousVariable.binning?.bounds)
+      )
+        project.value.cpts = [];
       project.value.variables[old] = v;
       const previous = project.value.evidence[v.id];
       if (
@@ -378,6 +477,7 @@ export const useProject = defineStore("project", () => {
     return g.id;
   }
   function removeGroup(id: string) {
+    cache.delete(id);
     project.value.queryGroups = project.value.queryGroups.filter(
       (g) => g.id !== id,
     );
@@ -442,6 +542,7 @@ export const useProject = defineStore("project", () => {
         .object({
           retained: z.number(),
           dropped: z.number(),
+          outOfRange: z.number(),
           counts: z.array(z.array(z.number())),
         })
         .parse(x),
@@ -468,57 +569,120 @@ export const useProject = defineStore("project", () => {
       trainingPreview.value.stamp = trainingStamp();
     notice.value = `Trained ${r.cpts.length} CPTs from ${r.retained} rows; ${r.dropped} excluded.`;
   }
-  async function query(group: QueryGroup) {
-    const { study: _study, ...model } = project.value;
-    const snapshot = JSON.parse(
-      JSON.stringify({
-        ...model,
-        evidence: group.evidence ?? {},
-        queryGroups: [group],
-      }),
-    ) as Project;
-    if (snapshot.dataset) delete snapshot.dataset.embeddedCsv;
-    const r = await job(
-      "infer",
-      {
-        project: snapshot,
-        engineUrl: new URL(
-          `${import.meta.env.BASE_URL}vendor/jsagrum/dist/index.js`,
-          location.origin,
-        ).href,
-      },
-      (x) => {
-        const r = resultSchema.parse(x);
-        for (const v of snapshot.variables)
-          if (
-            r.prior[v.id]?.length !== v.states.length ||
-            r.posterior[v.id]?.length !== v.states.length
-          )
-            throw new Error("Invalid graph probability response.");
-        for (const g of snapshot.queryGroups) {
-          const j = r.groups[g.id];
-          const shape = g.targetIds.map(
-            (id) => snapshot.variables.find((v) => v.id === id)!.states.length,
-          );
-          const size = shape.reduce((a, b) => a * b, 1);
-          if (
-            !j ||
-            JSON.stringify(j.targetIds) !== JSON.stringify(g.targetIds) ||
-            JSON.stringify(j.shape) !== JSON.stringify(shape) ||
-            j.prior.length !== size ||
-            j.posterior.length !== size
-          )
-            throw new Error("Invalid joint probability response.");
-        }
-        return r;
-      },
-    );
-    if (r) {
-      results.value = r;
-      resultSnapshot.value = snapshot;
-      resultStamp.value = stamp();
-      return true;
+  function parseResult(snapshot: Project, x: unknown) {
+    const r = resultSchema.parse(x);
+    const normalized = (values: number[] | undefined, length: number) =>
+      values?.length === length &&
+      Math.abs(values.reduce((sum, p) => sum + p, 0) - 1) < 1e-8;
+    for (const v of snapshot.variables)
+      if (
+        !normalized(r.prior[v.id], v.states.length) ||
+        !normalized(r.posterior[v.id], v.states.length)
+      )
+        throw new Error("Invalid graph probability response.");
+    for (const g of snapshot.queryGroups) {
+      const j = r.groups[g.id];
+      const shape = g.targetIds.map(
+        (id) => snapshot.variables.find((v) => v.id === id)!.states.length,
+      );
+      const size = shape.reduce((a, b) => a * b, 1);
+      if (
+        !j ||
+        JSON.stringify(j.targetIds) !== JSON.stringify(g.targetIds) ||
+        JSON.stringify(j.shape) !== JSON.stringify(shape) ||
+        !normalized(j.prior, size) ||
+        !normalized(j.posterior, size)
+      )
+        throw new Error("Invalid joint probability response.");
     }
+    return r;
+  }
+  async function runQueries(groups = project.value.queryGroups) {
+    if (busy.value || batchRunning.value || !groups.length) return false;
+    error.value = "";
+    notice.value = "";
+    const batch = ++batchId,
+      key = modelKey.value;
+    const modelRevision = revisions.value.model;
+    const model = copyModel(project.value);
+    const queue = groups.map(
+      (g) => JSON.parse(JSON.stringify(g)) as QueryGroup,
+    );
+    for (const g of queue) queryStatuses.value[g.id] = { state: "queued" };
+    batchRunning.value = true;
+    let completed = false;
+    async function work() {
+      const client = new ComputeClient();
+      queryClients.add(client);
+      try {
+        while (batch === batchId && queue.length) {
+          const group = queue.shift()!;
+          const snapshot = snapshotFor(model, group);
+          const entryKey = queryKey(group);
+          queryStatuses.value[group.id] = { state: "running" };
+          try {
+            inferenceReady(snapshot);
+            resolveEvidence(snapshot);
+            const raw = await client.request("infer", {
+              project: snapshot,
+              engineUrl: new URL(
+                `${import.meta.env.BASE_URL}vendor/jsagrum/dist/index.js`,
+                location.origin,
+              ).href,
+            });
+            if (batch !== batchId) return;
+            const entry = {
+              snapshot,
+              modelKey: key,
+              modelRevision,
+              queryKey: entryKey,
+              result: parseResult(snapshot, raw),
+            };
+            if (!isCurrent(group.id, entry)) {
+              queryStatuses.value[group.id] = {
+                state: "cancelled",
+                message: "Query or model changed during inference.",
+              };
+              continue;
+            }
+            cache.set(group.id, entry);
+            queryStatuses.value[group.id] = { state: "completed" };
+            dirty.value = true;
+            completed = true;
+          } catch (e) {
+            if (batch !== batchId) return;
+            queryStatuses.value[group.id] = {
+              state: "failed",
+              message: e instanceof Error ? e.message : String(e),
+            };
+          }
+        }
+      } finally {
+        queryClients.delete(client);
+        client.cancel();
+      }
+    }
+    await Promise.all(
+      Array.from(
+        {
+          length: Math.min(
+            queue.length,
+            (navigator.hardwareConcurrency || 1) > 1 ? 2 : 1,
+          ),
+        },
+        work,
+      ),
+    );
+    if (batch !== batchId) return false;
+    batchRunning.value = false;
+    return completed;
+  }
+  async function query(group: QueryGroup) {
+    const completed = await runQueries([group]);
+    const status = queryStatuses.value[group.id];
+    if (!completed && status?.state === "failed")
+      error.value = status.message ?? "Query failed.";
+    return completed;
   }
   async function openProject(text: string) {
     try {
@@ -532,6 +696,8 @@ export const useProject = defineStore("project", () => {
         delete group.savedEvidence;
       }
       p.evidence = {};
+      const savedResults = p.savedResults;
+      delete p.savedResults;
       let d: Dataset | undefined;
       if (p.dataset?.embeddedCsv !== undefined) {
         const descriptor = p.dataset;
@@ -558,12 +724,40 @@ export const useProject = defineStore("project", () => {
         p.variables.length && (!p.dataset || d) ? "network" : "data";
       embedDataset.value = true;
       dataset.value = d;
-      results.value = undefined;
-      resultSnapshot.value = undefined;
-      resultStamp.value = "";
+      resetQueries();
+      activeGroupId.value = p.queryGroups[0]?.id ?? "";
       trainingPreview.value = undefined;
       selected.value = "";
       revisions.value = { model: 0, data: 0, query: 0 };
+      const restoredProject = project.value;
+      if (savedResults?.length) {
+        const key = modelKey.value;
+        const hash = await modelHash(key);
+        if (project.value !== restoredProject || modelKey.value !== key) return;
+        const model = copyModel(p);
+        for (const entry of savedResults) {
+          const group = p.queryGroups.find((g) => g.id === entry.id);
+          if (
+            !group ||
+            entry.modelHash !== hash ||
+            queryKey(group) !== entry.queryKey
+          )
+            continue;
+          const snapshot = snapshotFor(model, group);
+          try {
+            cache.set(group.id, {
+              snapshot,
+              result: parseResult(snapshot, entry.result),
+              modelKey: key,
+              modelRevision: 0,
+              queryKey: entry.queryKey,
+            });
+            queryStatuses.value[group.id] = { state: "completed" };
+          } catch {
+            // Ignore a malformed cached result and allow the query to be rerun.
+          }
+        }
+      }
       dirty.value = false;
       notice.value = d
         ? "Project and dataset opened."
@@ -575,18 +769,30 @@ export const useProject = defineStore("project", () => {
       error.value = `Could not open project: ${e instanceof Error ? e.message : e}`;
     }
   }
-  function savedProject(embed: boolean) {
+  async function savedProject(embed: boolean, includeResults = true) {
     const p = JSON.parse(JSON.stringify(project.value)) as Project;
     if (p.dataset) {
       delete p.dataset.embeddedCsv;
       if (embed && dataset.value) p.dataset.embeddedCsv = dataset.value.csv;
     }
+    if (includeResults) {
+      const entries = [...cache].filter(([id, entry]) => isCurrent(id, entry));
+      if (entries.length) {
+        const hash = await modelHash(modelKey.value);
+        p.savedResults = entries.map(([id, entry]) => ({
+          id,
+          modelHash: hash,
+          queryKey: entry.queryKey,
+          result: entry.result,
+        }));
+      }
+    }
     const text = JSON.stringify(validateProject(p), null, 2);
     if (new Blob([text]).size > LIMITS.fileBytes)
       throw new Error(
         embed && dataset.value
-          ? "Project exceeds 100 MiB with the CSV. Download the CSV separately and turn off embedding in Data settings."
-          : "Project exceeds 100 MiB.",
+          ? "Project exceeds 100 MiB. Turn off CSV embedding or save without cached results."
+          : "Project exceeds 100 MiB. Try saving without cached results.",
       );
     return text;
   }
@@ -601,9 +807,7 @@ export const useProject = defineStore("project", () => {
     project.value = emptyProject();
     embedDataset.value = true;
     dataset.value = undefined;
-    results.value = undefined;
-    resultSnapshot.value = undefined;
-    resultStamp.value = "";
+    resetQueries();
     selected.value = "";
     trainingPreview.value = undefined;
     touch();
@@ -685,6 +889,7 @@ export const useProject = defineStore("project", () => {
         "manual",
         cuts.length + 1,
         cuts,
+        v.binning.bounds,
       );
     } catch (e) {
       error.value = e instanceof Error ? e.message : String(e);
@@ -801,6 +1006,11 @@ export const useProject = defineStore("project", () => {
     results,
     resultSnapshot,
     resultStamp,
+    queryStatuses,
+    completedQueryIds,
+    batchRunning,
+    runQueries,
+    cancelQueries,
     current,
     cycles,
     trainingPreview,

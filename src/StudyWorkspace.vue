@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, shallowRef, toRaw, watch } from "vue";
-import { ComputeClient } from "./client";
+import { surrogateClient as client } from "./surrogate-client";
 import { useProject } from "./store";
 import { checkStudy, type StudyRun, type Validation } from "./study";
 import StudySetup from "./StudySetup.vue";
@@ -29,12 +29,6 @@ const current = ref(0),
   feasible = ref(0);
 const fitKey = ref("");
 const validationDetail = ref("");
-const client = new ComputeClient(
-  () =>
-    new Worker(new URL("./study.worker.ts", import.meta.url), {
-      type: "module",
-    }),
-);
 const key = computed(() =>
   study.value
     ? JSON.stringify([
@@ -63,7 +57,7 @@ function resetProgress() {
 watch(
   () => study.value?.id,
   () => {
-    client.cancel();
+    if (task.value) client.cancel();
     task.value = undefined;
     counts.value = undefined;
     view.value = "setup";
@@ -86,7 +80,9 @@ watch(key, () => {
   resetProgress();
   if (view.value === "explore") view.value = "setup";
 });
-onBeforeUnmount(() => client.cancel());
+onBeforeUnmount(() => {
+  if (task.value) client.cancel();
+});
 
 async function request<T>(
   op: NonNullable<typeof task.value>,

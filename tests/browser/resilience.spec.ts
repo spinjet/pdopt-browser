@@ -26,21 +26,23 @@ for (const operation of ["cancel", "stale"] as const)
       await barrier;
       await route.continue().catch(() => {});
     });
-    await page.getByRole("button", { name: "Run query", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Run selected query", exact: true })
+      .click();
     await requested;
     if (operation === "cancel")
-      await page.getByRole("button", { name: "Cancel computation" }).click();
+      await page.getByRole("button", { name: "Cancel queries" }).click();
     else
       await page
         .getByRole("group", { name: "Query evidence" })
         .getByRole("combobox", { name: "Load", exact: true })
         .selectOption({ label: "High" });
     release();
-    await expect(page.getByRole("alert")).toContainText(
-      operation === "cancel" ? "cancelled" : "outdated",
-    );
+    await expect(page.locator(".query-statuses")).toContainText("cancelled");
     await page.unroute("**/libagrum.wasm");
-    await page.getByRole("button", { name: "Run query", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Run selected query", exact: true })
+      .click();
     await expect(
       page.getByText("Current results", { exact: true }),
     ).toBeVisible();
@@ -60,13 +62,17 @@ test("missing WASM preserves work and retry loads a fresh engine", async ({
   ).toBeVisible();
   await openExploration(page, "Queries");
   await page.route("**/libagrum.wasm", (route) => route.abort());
-  await page.getByRole("button", { name: "Run query", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Run selected query", exact: true })
+    .click();
   await expect(page.getByRole("alert")).toContainText(
     "Could not initialize WASM",
   );
   await expect(page.locator("#results-panel .network-node")).toHaveCount(3);
   await page.unroute("**/libagrum.wasm");
-  await page.getByRole("button", { name: "Run query", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Run selected query", exact: true })
+    .click();
   await expect(
     page.getByText("Current results", { exact: true }),
   ).toBeVisible();

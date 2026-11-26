@@ -1,16 +1,16 @@
 <script setup lang="ts">
+import MarkdownIt from "markdown-it";
 import { ref } from "vue";
-import content from "./content/about.md?raw";
+import content from "../doc/about.md?raw";
 
 const dialog = ref<HTMLDialogElement>();
 const html = ref("");
 const error = ref("");
-async function show() {
+function show() {
   dialog.value?.showModal();
   if (html.value) return;
   error.value = "";
   try {
-    const { default: MarkdownIt } = await import("markdown-it");
     html.value = new MarkdownIt({ html: false }).render(content);
   } catch {
     error.value =

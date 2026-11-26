@@ -1,6 +1,6 @@
 {
   "name": "bayesnet-browser",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "PDOPT-BN local-first Bayesian network workspace",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
@@ -12,7 +12,7 @@
     "test:numerical": "vitest run tests/numerical.test.ts",
     "test:e2e": "playwright test",
     "preview": "vite preview --host 127.0.0.1",
-    "format:check": "prettier --check src tests tools *.ts *.html *.json docs README.md"
+    "format:check": "prettier --check src tests tools *.ts *.html *.json doc README.md"
   },
   "keywords": [],
   "author": "",

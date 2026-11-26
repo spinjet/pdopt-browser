@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { probabilityPercent } from "./query-figure";
 import { computed, nextTick, ref, watch } from "vue";
 import {
   Handle,
@@ -224,10 +225,7 @@ function setCoverage(event: Event) {
   (event.target as HTMLInputElement).value = String(props.study.coverage * 100);
 }
 function percent(value: number) {
-  return new Intl.NumberFormat(undefined, {
-    style: "percent",
-    maximumFractionDigits: 2,
-  }).format(value);
+  return probabilityPercent(value, st.project.probabilityDecimalPlaces);
 }
 function regionBound(region: StudyRegion, index: number) {
   const v = targets.value[index],
@@ -268,7 +266,7 @@ function statesBoundsMax(v: typeof variable.value, state: number) {
         />
       </label>
       <strong
-        >{{ percent(selection.achieved) }} coverage ·
+        >{{ percent(selection.achieved) }} retained mass ·
         {{ selection.retained.length }} retained regions</strong
       >
       <span class="muted"
@@ -279,8 +277,12 @@ function statesBoundsMax(v: typeof variable.value, state: number) {
       </button>
     </div>
     <p class="tiny muted">
-      Coverage sums whole query cells. Clipped search bounds are shown
-      separately. Candidate designs must meet the configured constraints.
+      The study ranks eligible joint query cells by posterior probability. It
+      keeps whole cells until their cumulative mass reaches the requested
+      coverage, including cells tied at the cutoff. Clipping a cell to your
+      study bounds keeps its original probability. Coverage guides where the
+      study searches. Candidate designs still have to satisfy the constraints.
+      {{ percent(selection.available) }} of the posterior mass is eligible.
     </p>
     <p v-if="selection.available + 1e-12 < study.coverage" class="field-error">
       {{

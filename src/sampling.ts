@@ -1,4 +1,5 @@
-import type { Project, StudyValue } from "./domain";
+import { numericBounds } from "./domain";
+import type { Project, StudyValue, Variable } from "./domain";
 import { stateLabel } from "./domain";
 import type { JointResult } from "./engine";
 import { nextDown, randomGenerator } from "./numbers";
@@ -85,17 +86,14 @@ function drawSamples(
   });
   const intervals = vars.map((v, i) => {
     if (v.representation !== "discretised") return null;
-    const b = bounds[v.id] || {
-      min: v.binning!.fittedRange[0],
-      max: v.binning!.fittedRange[1],
-    };
+    const b = bounds[v.id] || defaultSamplingBounds(v);
     if (!Number.isFinite(b.min) || !Number.isFinite(b.max) || b.min >= b.max)
       throw new Error(`Set finite lower < upper bounds for ${v.label}.`);
     return v.states.map((_, k) => {
-      const lo = Math.max(b.min, k === 0 ? -Infinity : v.binning!.cuts[k - 1]);
-      const binHi = k === v.states.length - 1 ? Infinity : v.binning!.cuts[k];
-      const hi = Math.min(b.max, binHi);
-      const max = hi === binHi ? nextDown(hi) : hi;
+      const [lower, upper] = numericBounds(v);
+      const lo = Math.max(b.min, v.binning!.cuts[k - 1] ?? lower);
+      const cut = v.binning!.cuts[k];
+      const max = Math.min(b.max, cut === undefined ? upper : nextDown(cut));
       if (
         positive[i][k] &&
         (lo > max || !Number.isFinite(lo) || !Number.isFinite(max))
@@ -153,6 +151,14 @@ function drawSamples(
   return { group, vars, names };
 }
 
+export function defaultSamplingBounds(v: Variable) {
+  const [min, max] = numericBounds(v);
+  const [observedMin, observedMax] = v.binning!.fittedRange;
+  return {
+    min: Number.isFinite(min) ? min : observedMin,
+    max: Number.isFinite(max) ? max : observedMax,
+  };
+}
 export function sampleArchive(
   project: Project,
   groupId: string,
@@ -191,6 +197,7 @@ export function sampleArchive(
     columns: vars.map((v, i) => ({
       header: names[i],
       variableId: v.id,
+      source: "sampled",
       representation: v.representation,
       states: v.states.map((source, k) => ({
         stateId: k,
@@ -199,10 +206,7 @@ export function sampleArchive(
       })),
       binning: v.binning,
       samplingBounds: v.binning
-        ? bounds[v.id] || {
-            min: v.binning.fittedRange[0],
-            max: v.binning.fittedRange[1],
-          }
+        ? bounds[v.id] || defaultSamplingBounds(v)
         : undefined,
     })),
     distribution: { shape: joint.shape, posterior: joint.posterior },

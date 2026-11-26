@@ -15,6 +15,16 @@ Serve **all of `dist/`** using any conventional static HTTPS server. This includ
 
 For a local check, run `npm run preview`. For actual self-hosting, configure Nginx/Caddy/your existing static host to serve `dist/`; Vite preview is a development verification server. There is no client-side routing or API path to rewrite. Missing JS/WASM assets should return 404 rather than the HTML page.
 
+## Cloudflare Pages
+
+Connect the `spinjet/pdopt-browser` repository and set the production branch to `main`. Leave the root directory blank, use `npm ci && npm run build` as the build command, and publish `dist`. Set `NODE_VERSION` to `24`. Including `npm ci` makes the build independent of Pages’ automatic installation setting. If the build reports a missing `node_modules/jsagrum/dist`, check whether Pages skipped dependency installation.
+
+Verify the build at its Pages preview URL before assigning the production custom domain. Use the root deployment settings for `pdopt.a-spinelli.com`.
+
+## Release version
+
+The footer shows the application version from `package.json`. Cloudflare Pages builds also show the first seven characters of `CF_PAGES_COMMIT_SHA` so that deployments with the same release number can be distinguished. To cut a release, update the version and lockfile together with `npm version <patch|minor|major> --no-git-tag-version`, then commit both files before deploying.
+
 ## Subdirectory deployment
 
 Build and verify with the same base path, including its trailing slash:

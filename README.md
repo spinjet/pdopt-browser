@@ -23,7 +23,7 @@ Open the address Vite prints. Hosted users need only a modern browser, not Node.
 
 1. In **Data**, import a UTF-8 CSV, sample a column to start a dataset, or load the cantilever example. Use **Sample column** and **Calculate column** to preview and apply new values. The table scrolls with pinned headers. Imported headers must be unique and nonblank. Delimiters, quoted fields and UTF-8 BOMs are supported.
 2. Open **Probabilistic Exploration** and add columns as variables in **Network**, or add a manual categorical node with a uniform CPT. Connect nodes through graph handles or **Connections · keyboard controls**. Cyclic drafts can be saved, but cannot train or run inference.
-3. Select a node and click **Edit states**. Numeric columns default to three equal-width bins. Variable settings offers categorical, finite numeric and discretised representations, with manual, equal-width or quantile cuts.
+3. Select a node and click **Edit states**. Numeric columns default to three equal-width bins between the observed minimum and maximum. Variable settings offers categorical, finite numeric and discretised representations, with manual, equal-width or quantile cuts.
 4. Edit categorical **state display names**, keeping original source values visible. Click **Apply state names** to commit nonblank, unique aliases. This does not change encoding, evidence or CPTs.
 5. Set **Decimal places** per numeric variable (0–12, default 2). Thresholds remain full precision; **Exact thresholds** shows stored cuts. Warnings identify indistinguishable rounded boundaries. Exact cuts enter the upper bin.
 6. Choose **Learn from data** or **Force uniform CPT** for CSV-backed variables. A variable with a manual parent needs a uniform CPT because the CSV has no observations for that parent.
@@ -46,7 +46,7 @@ Open **States & training** and click **Train model**. The seeded sample covers e
 ## Queries and Results
 
 1. In **Queries**, choose the targets and evidence for each named query. Evidence can be a single state, an allowed-state set, or a numeric threshold. Numeric observations map through the saved cuts.
-2. **Duplicate query** copies the selected targets and evidence for independent editing. The summary shows **P ( query variables | evidence )**. **Run query** evaluates the selected query and opens its result. **Edit query** returns to the query that produced it.
+2. **Duplicate query** copies the selected targets and evidence for independent editing. The summary shows **P ( query variables | evidence )**. **Run selected query** evaluates one query and opens its result. **Run all queries** evaluates named queries concurrently and reports each status. Use the Results selector to revisit completed queries. **Edit query** returns to the query that produced it.
 3. Switch between **Network graph** for individual probabilities at each node and **Query results** for diagrams and tables. One target shows prior and posterior bars. For joint queries, the heatmap shows two axes. Select a state for each additional target to view a slice. The scale stays fixed to the full distribution.
 4. Hover, focus or tap a heatmap cell to see its probability. Use arrow keys to move between cells. **Show values** displays all cell values. The **Table** view supports sorting, pagination and state filtering for joint queries.
 
@@ -54,9 +54,9 @@ Joint probabilities are computed exactly through conditional inference, not mult
 
 ## Save, reopen and export
 
-**Save project** downloads schema-version-3 JSON. Old version-1 and version-2 projects migrate automatically, preserving learned probabilities, cuts, evidence and positions, and creating individual query views for their previous targets. Older queries use their saved evidence where available and otherwise inherit the previous shared evidence.
+**Save project** downloads schema-version-4 JSON. Version-1, version-2 and version-3 projects migrate automatically, preserving learned probabilities, cuts, evidence and positions, and creating individual query views for their previous targets. Older queries use their saved evidence where available and otherwise inherit the previous shared evidence.
 
-The project file includes the current CSV by default, including columns added in Data. To save without the CSV, turn off embedding in **Data settings**. **Locate project CSV** checks the file against the saved dataset hash before attaching it to a project. Saved CPTs remain queryable while the data is detached.
+The project file includes the current CSV by default, including columns added in Data. To save without the CSV, turn off embedding in **Data settings**. **Locate project CSV** checks the file against the saved dataset hash before attaching it to a project. Saved CPTs remain queryable while the data is detached. Current query results also reopen without the CSV. Use **Save without cached results** to omit them.
 
 Export the selected query as JSON. It retains target/state order, original source values and display labels, evidence, training provenance, fitted thresholds and full-precision probabilities. Keep project downloads as portable backups.
 
@@ -66,7 +66,9 @@ Use **Export figure** in the diagram for a vector SVG or a 300 or 600 dpi PNG. T
 
 Use **Export network image** beside the graph in **Network** or **Results → Network graph** to preview the layout and download SVG or PNG. The Results export includes node probabilities and highlights evidence and query targets with editable colours.
 
-Open **Help/Tutorial** to keep the instructions beside the workspace while you work. **Help for this view** follows the active tab. Edit **About** in [src/content/about.md](src/content/about.md).
+Open **Help/Tutorial** to keep the instructions beside the workspace while you work. **Help for this view** follows the active tab. Edit **About** in [doc/about.md](doc/about.md).
+
+See the [documentation index](doc/README.md) for the maintainer manual and the help authoring guide.
 
 ## Checks and hosting
 
@@ -90,7 +92,7 @@ The optional reference generator runs from the repository root using a Python 3.
 python tools/reference/generate.py
 ```
 
-Python is not shipped or called by the web runtime. See [hosting](docs/hosting.md), [verification](docs/verification.md), and the [iteration decisions](docs/decisions/002-workspaces-joint-queries.md).
+Python is not shipped or called by the web runtime. See [hosting](doc/hosting.md), [verification](doc/verification.md), and the [iteration decisions](doc/decisions/002-workspaces-joint-queries.md).
 
 Development continues on `main` in this repository. Manual CPT editing, structure learning, offline installation, browser recovery and surrogate optimisation remain deferred.
 
@@ -104,6 +106,6 @@ Each node has four connection handles. Drag from any side of a parent to any sid
 
 **Export network image** downloads Graphviz hierarchical SVG or PNG, optionally including current all-node probabilities. It exports the structure, independently of the canvas positions. **Layout direction → Auto** follows the predominant connection sides: bottom → top endpoints produce a top-down hierarchy, top → bottom produces bottom-up, and left/right connections produce a horizontal hierarchy. Dependencies determine the ranks. Mixed layouts use one overall direction (vertical wins ties), with explicit top-down, bottom-up, left-to-right and right-to-left overrides. Wider rank spacing and angled edge routing reduce looping paths while preserving the selected connection sides. Direction is an export setting and does not change saved positions or probabilities. Probability export requires current inference results. Graphviz runs locally in a cancellable worker; PNG rasterisation uses the browser canvas. Large PNGs are blocked with an SVG alternative.
 
-Open **Results → Sample distribution** to generate up to 5,000 interactive draws. Scatter plots, parallel coordinates and the sample table share one selection, which can be exported as CSV. **Download samples ZIP** saves samples.csv and manifest.json. Defaults: 1,000 rows, seed 42; maximum 100,000 rows and 100 MiB CSV. The deterministic mulberry32-v1 generator samples whole state combinations from the active query's full joint posterior; visual filters have no effect. Categorical values use display labels; finite numeric states use exact source numbers. Discretised numeric states draw uniformly within their bin intersected with finite editable bounds, defaulting to fitted min/max. This is an explicit within-bin assumption, not a learned continuous density. Bounds excluding any positive-probability state block export rather than changing the distribution. The manifest records ordering, labels, evidence, bounds, posterior, seed and training provenance.
+Open **Sampling** to generate up to 5,000 interactive draws. Scatter plots, parallel coordinates and the sample table share one selection, which can be exported as CSV. **Download samples ZIP** saves samples.csv and manifest.json. Defaults: 1,000 rows, seed 42; maximum 100,000 rows and 100 MiB CSV. The deterministic mulberry32-v1 generator samples whole state combinations from the active query's full joint posterior; visual filters have no effect. Categorical values use display labels; finite numeric states use exact source numbers. Discretised numeric states draw uniformly within their bin intersected with finite editable bounds, defaulting to fitted min/max. This is an explicit within-bin assumption, not a learned continuous density. Bounds excluding any positive-probability state block export rather than changing the distribution. The manifest records ordering, labels, evidence, bounds, posterior, seed and training provenance.
 
-Schema 3 adds event evidence and connection sides. Versions 1 and 2 import with unchanged CPTs and numerical behavior; missing sides default to right → left. Older applications cannot read schema 3. Keep a backup before opening with a newer version. Graphviz/Expat source links and license texts ship under public/notices/graphviz. No backend, network upload, account or website publication is added.
+Schema 4 stores cached query results, bin limits, and presentation choices. Legacy projects keep their CPTs and open outer bins. Missing connection sides default to right → left. Keep a backup before opening with a newer version. Graphviz/Expat source links and license texts ship under public/notices/graphviz. No backend, network upload, account or website publication is added.

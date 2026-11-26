@@ -1,3 +1,4 @@
+import { probabilityPercent } from "../src/query-figure";
 import { test, expect } from "vitest";
 import { createInProcessBN } from "jsagrum";
 import { infer } from "../src/engine";
@@ -152,11 +153,19 @@ test("next representable bounds preserve signed and extreme doubles", () => {
 });
 test("v2 migration preserves CPT validity, evidence and layout; ports are presentation only", async () => {
   const { p } = await setup();
-  const old = { ...p, schemaVersion: 2 };
+  const old = {
+    ...p,
+    schemaVersion: 2,
+    variables: p.variables.map((v) => {
+      if (!v.binning) return v;
+      const { bounds, ...binning } = v.binning;
+      return { ...v, binning };
+    }),
+  };
   const migrated = validateProject(old);
-  expect(migrated.schemaVersion).toBe(3);
+  expect(migrated.schemaVersion).toBe(4);
   expect(migrated.cpts).toEqual(p.cpts);
-  expect(migrated.variables).toEqual(p.variables);
+  expect(migrated.variables).toEqual(old.variables);
   expect(migrated.edges[0].sourceHandle).toBe("right");
   const before = signature(p, p.variables[1].id);
   p.edges[0].sourceHandle = "bottom";
@@ -394,4 +403,12 @@ test("engineering fork/join export places roots, outcomes and range in successiv
     expect(svg).toContain("Skin Root Thickness [mm]");
   }
   expect(JSON.stringify(p)).toBe(original);
+});
+
+test("probability labels round to the requested decimal places", () => {
+  expect(probabilityPercent(0)).toBe("0.000%");
+  expect(probabilityPercent(1.2345678e-10, 4)).toBe("0.0000%");
+  expect(probabilityPercent(0.12345678, 3)).toBe("12.346%");
+  expect(probabilityPercent(0.12345678, 0)).toBe("12%");
+  expect(probabilityPercent(0.12345678, 8)).toBe("12.34567800%");
 });

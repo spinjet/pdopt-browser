@@ -11,6 +11,13 @@ export const LIMITS = {
   columns: 500,
 };
 const finite = z.number().finite();
+export const binBoundsSchema = z.object({
+  lower: z.enum(["observed", "zero", "custom", "unbounded"]),
+  upper: z.enum(["observed", "custom", "unbounded"]),
+  min: finite.optional(),
+  max: finite.optional(),
+});
+export type BinBounds = z.infer<typeof binBoundsSchema>;
 export const variableSchema = z.object({
   id: z.uuid(),
   label: z.string().min(1).max(200),
@@ -31,6 +38,7 @@ export const variableSchema = z.object({
       fittedRange: z.tuple([finite, finite]),
       algorithmVersion: z.literal("1"),
       closure: z.literal("leftClosed"),
+      bounds: binBoundsSchema.optional(),
     })
     .optional(),
   position: z.object({ x: finite, y: finite }),
@@ -69,8 +77,47 @@ export const queryGroupSchema = z.object({
   savedEvidence: evidenceSchema.optional(),
 });
 export type QueryGroup = z.infer<typeof queryGroupSchema>;
+export const resultSchema = z.object({
+  prior: z.record(
+    z.string(),
+    z.array(
+      z
+        .number()
+        .min(0)
+        .max(1 + 1e-10),
+    ),
+  ),
+  posterior: z.record(
+    z.string(),
+    z.array(
+      z
+        .number()
+        .min(0)
+        .max(1 + 1e-10),
+    ),
+  ),
+  groups: z.record(
+    z.string(),
+    z.object({
+      targetIds: z.array(z.string()),
+      shape: z.array(z.number().int()),
+      prior: z.array(
+        z
+          .number()
+          .min(0)
+          .max(1 + 1e-10),
+      ),
+      posterior: z.array(
+        z
+          .number()
+          .min(0)
+          .max(1 + 1e-10),
+      ),
+    }),
+  ),
+});
 const projectCoreSchema = z.object({
-  schemaVersion: z.literal(3),
+  schemaVersion: z.union([z.literal(3), z.literal(4)]),
   id: z.string(),
   example: z.literal("cantilever").optional(),
   name: z.string().min(1).max(200),
@@ -144,6 +191,33 @@ export const studySchema = z.object({
   nodes: z.record(z.string(), studyNodeSchema),
 });
 export const projectSchema = projectCoreSchema.extend({
+  schemaVersion: z.literal(4),
+  probabilityDecimalPlaces: z.number().int().min(0).max(8).optional(),
+  heatmapPalette: z
+    .enum([
+      "Blues",
+      "Greens",
+      "Greys",
+      "teal",
+      "viridis",
+      "cividis",
+      "plasma",
+      "magma",
+      "coolwarm",
+      "RdBu",
+    ])
+    .optional(),
+  savedResults: z
+    .array(
+      z.object({
+        id: z.string(),
+        modelHash: z.string().regex(/^[a-f0-9]{64}$/),
+        queryKey: z.string(),
+        result: resultSchema,
+      }),
+    )
+    .max(100)
+    .optional(),
   study: studySchema.optional(),
 });
 export type Study = z.infer<typeof studySchema>;
@@ -171,7 +245,7 @@ export const datasetSchema = z.object({
 export type Dataset = z.infer<typeof datasetSchema>;
 export function emptyProject(): Project {
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     id: crypto.randomUUID(),
     name: "Untitled network",
     variables: [],
@@ -282,6 +356,28 @@ export function validateProject(input: unknown): Project {
       })),
     });
   }
+  if (
+    input &&
+    typeof input === "object" &&
+    "schemaVersion" in input &&
+    input.schemaVersion === 3
+  )
+    input = { ...input, schemaVersion: 4 };
+  if (
+    input &&
+    typeof input === "object" &&
+    !("probabilityDecimalPlaces" in input) &&
+    "significantDigits" in input
+  ) {
+    const legacy = z
+      .number()
+      .int()
+      .min(1)
+      .max(8)
+      .safeParse(input.significantDigits);
+    if (legacy.success)
+      input = { ...input, probabilityDecimalPlaces: legacy.data };
+  }
   const p = projectSchema.parse(input),
     ids = new Set(p.variables.map((v) => v.id));
   if (ids.size !== p.variables.length)
@@ -312,6 +408,20 @@ export function validateProject(input: unknown): Project {
       throw new Error(
         "Finite numeric states must be canonical numbers in increasing order.",
       );
+    if (v.binning?.bounds) {
+      const { bounds, cuts, fittedRange } = v.binning;
+      const { lower, upper, min, max } = bounds;
+      if (
+        (lower === "unbounded") !== (min === undefined) ||
+        (upper === "unbounded") !== (max === undefined) ||
+        (lower === "zero" && min !== 0) ||
+        (lower === "observed" && min !== fittedRange[0]) ||
+        (upper === "observed" && max !== fittedRange[1]) ||
+        (min !== undefined && cuts.some((c) => c <= min)) ||
+        (max !== undefined && cuts.some((c) => c > max))
+      )
+        throw new Error(`Invalid bin bounds for ${v.label}.`);
+    }
     if (v.binning && v.binning.fittedRange[0] > v.binning.fittedRange[1])
       throw new Error("Invalid fitted numeric range.");
     if (new Set(v.states).size !== v.states.length)
@@ -463,12 +573,39 @@ export function invalidate(p: Project) {
   );
 }
 
+export function numericBounds(v: Variable): [number, number] {
+  return [
+    v.binning?.bounds?.min ?? -Infinity,
+    v.binning?.bounds?.max ?? Infinity,
+  ];
+}
+export function outsideBinBounds(v: Variable, value: number) {
+  const [min, max] = numericBounds(v);
+  return value < min || value > max;
+}
+export function binLabel(
+  v: Variable,
+  index: number,
+  format: (x: number) => string,
+) {
+  const cuts = v.binning!.cuts;
+  const [min, max] = numericBounds(v);
+  const left = index
+    ? `[${format(cuts[index - 1])}`
+    : min === -Infinity
+      ? "(−∞"
+      : `[${format(min)}`;
+  const right =
+    index < cuts.length
+      ? `${format(cuts[index])})`
+      : max === Infinity
+        ? "+∞)"
+        : `${format(max)}]`;
+  return `${left}, ${right}`;
+}
 export function stateLabel(v: Variable, index: number): string {
   if (v.representation !== "discretised") return v.stateLabels[index];
-  const cuts = v.binning!.cuts,
-    n = v.displayDecimals;
-  const format = (x: number) => x.toFixed(n);
-  return `${index === 0 ? "(−∞" : `[${format(cuts[index - 1])}`}, ${index === cuts.length ? "+∞" : format(cuts[index])})`;
+  return binLabel(v, index, (x) => x.toFixed(v.displayDecimals));
 }
 export function precisionWarning(v: Variable): boolean {
   if (!v.binning) return false;
@@ -502,6 +639,16 @@ export function allowedStates(v: Variable, e: EvidenceValue): number[] {
     return v.states
       .map((s, i) => (test(Number(s)) ? i : -1))
       .filter((i) => i >= 0);
+  const [min, max] = numericBounds(v);
+  if (outsideBinBounds(v, e.value))
+    throw new ModelError(
+      "INVALID_EVIDENCE",
+      `Numeric evidence is outside the bin bounds for ${v.label}.`,
+    );
+  if (e.value === min && (e.operator === "gte" || e.operator === "lt"))
+    return e.operator === "gte" ? v.states.map((_, i) => i) : [];
+  if (e.value === max && (e.operator === "lte" || e.operator === "gt"))
+    return e.operator === "lte" ? v.states.map((_, i) => i) : [];
   const cut = thresholdCut(e),
     index = v.binning!.cuts.indexOf(cut);
   if (index < 0)

@@ -1,3 +1,4 @@
+import { outsideBinBounds } from "./domain";
 import {
   RandomForestClassifier,
   RandomForestRegression,
@@ -41,7 +42,8 @@ function fromRow(
   if (raw === undefined || missing.has(raw)) return;
   if (isCategorical(v)) return v.states.includes(raw) ? raw : undefined;
   const value = Number(raw);
-  if (!raw.trim() || !Number.isFinite(value)) return;
+  if (!raw.trim() || !Number.isFinite(value) || outsideBinBounds(v, value))
+    return;
   return v.representation === "finiteNumeric" &&
     !v.states.includes(String(value))
     ? undefined
@@ -55,7 +57,7 @@ export function trainingSplit(
   missingTokens: string[],
 ): TrainingSplit {
   const groups = new Map<number, { x: number[]; y: number }[]>();
-  const categorical = response.representation !== "discretised";
+  const categorical = isCategorical(response);
   const missing = new Set(["", ...missingTokens]);
   let count = 0;
   for (const row of dataset.rows) {
@@ -172,8 +174,14 @@ export function checkConstraint(
 }
 
 function responseValue(v: Variable, value: number): StudyValue {
+  if (isCategorical(v)) return v.states[value];
   if (v.representation === "discretised") return value;
-  return isCategorical(v) ? v.states[value] : Number(v.states[value]);
+  // A finite numeric variable can only take one of its declared values.
+  return v.states
+    .map(Number)
+    .reduce((best, state) =>
+      Math.abs(state - value) < Math.abs(best - value) ? state : best,
+    );
 }
 
 export function scoreValidation(
@@ -196,7 +204,7 @@ export function scoreValidation(
     if (split.categorical) {
       score += Number(truth === prediction[i]);
     } else {
-      const error = Math.abs(truth - prediction[i]);
+      const error = Math.abs(truth - Number(output(prediction[i])));
       score += error;
       maxError = Math.max(maxError, error);
       minObserved = Math.min(minObserved, truth);
@@ -253,9 +261,77 @@ export function scoreValidation(
 
 export interface ResponseModel {
   variable: Variable;
+  fitKey: string;
   validation: Validation;
   predict(rows: Record<string, StudyValue>[]): StudyValue[];
 }
+export function surrogateFitKey(
+  response: Variable,
+  predictors: Variable[],
+  missingTokens: string[],
+  datasetHash: string,
+) {
+  const encoding = (v: Variable) => [
+    v.id,
+    v.columnId,
+    v.representation,
+    v.states,
+    v.binning,
+  ];
+  return JSON.stringify([
+    datasetHash,
+    missingTokens,
+    encoding(response),
+    predictors.map(encoding),
+  ]);
+}
+
+export function fitResponse(
+  dataset: Dataset,
+  response: Variable,
+  predictors: Variable[],
+  missingTokens: string[],
+  constraint?: StudyNode["constraint"],
+): ResponseModel {
+  if (
+    !response.columnId ||
+    !predictors.length ||
+    predictors.some((p) => !p.columnId)
+  )
+    throw new Error(
+      "Prediction requires dataset columns for the response and its inputs.",
+    );
+  const ids = predictors.map((v) => v.id);
+  const split = trainingSplit(dataset, response, predictors, missingTokens);
+  const model = fitJavaScript(split);
+  const validation = scoreValidation(
+    response,
+    ids,
+    split,
+    model(split.holdout),
+    constraint,
+  );
+  validation.fittedRows = Math.min(validation.fittedRows, MAX_JS_TRAINING_ROWS);
+  return {
+    variable: response,
+    fitKey: surrogateFitKey(response, predictors, missingTokens, dataset.hash),
+    validation,
+    predict(rows) {
+      const x = rows.map((row) => {
+        const values = predictors.map((v) => {
+          const value = row[v.id];
+          if (value === undefined)
+            throw new Error(`Missing input for ${v.label}.`);
+          encode(v, String(value));
+          return value;
+        });
+        return features(predictors, values);
+      });
+      return model(x).map((value) => responseValue(response, value));
+    },
+  };
+}
+
 export function fitStudy(
   study: Study,
   dataset: Dataset,
@@ -263,45 +339,19 @@ export function fitStudy(
 ) {
   const responses = studyResponses(study);
   return responses.map((response, i): ResponseModel => {
-    const ids =
-      study.nodes[response.id].predictors ??
-      suggestPredictors(study, response.id);
+    const node = study.nodes[response.id];
+    const ids = node.predictors ?? suggestPredictors(study, response.id);
     const predictors = ids.map((id) =>
       study.snapshot.variables.find((v) => v.id === id)!,
     );
-    const split = trainingSplit(
+    const model = fitResponse(
       dataset,
       response,
       predictors,
       study.snapshot.missingTokens,
-    );
-    const model = fitJavaScript(split);
-    const validation = scoreValidation(
-      response,
-      ids,
-      split,
-      model(split.holdout),
-      study.nodes[response.id].constraint,
-    );
-    validation.fittedRows = Math.min(
-      validation.fittedRows,
-      MAX_JS_TRAINING_ROWS,
+      node.constraint,
     );
     onFit(i + 1, responses.length);
-    return {
-      variable: response,
-      validation,
-      predict(rows) {
-        const prediction = model(
-          rows.map((row) =>
-            features(
-              predictors,
-              ids.map((id) => row[id]),
-            ),
-          ),
-        );
-        return prediction.map((value) => responseValue(response, value));
-      },
-    };
+    return model;
   });
 }

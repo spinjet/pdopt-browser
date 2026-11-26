@@ -1,3 +1,4 @@
+import { binLabel, outsideBinBounds, type BinBounds } from "./domain";
 import Papa from "papaparse";
 import {
   LIMITS,
@@ -126,6 +127,10 @@ export function encode(v: Variable, raw: string): number {
     if (!raw.trim() || !Number.isFinite(Number(raw)))
       throw new Error(`Invalid numeric value in ${v.label}: ${raw}`);
     const n = Number(raw);
+    if (outsideBinBounds(v, n))
+      throw new Error(
+        `Numeric value is outside the bin bounds for ${v.label}: ${raw}`,
+      );
     return v.binning!.cuts.filter((c) => n >= c).length;
   }
   const value =
@@ -147,6 +152,7 @@ export function configureVariable(
   method: "manual" | "equalWidth" | "quantile",
   bins: number,
   manual: number[],
+  bounds?: BinBounds,
 ): Variable {
   const index = Number(columnId.slice(1));
   if (!dataset.headers[index]) throw new Error("Source column not found.");
@@ -171,14 +177,60 @@ export function configureVariable(
   if (representation === "discretised") {
     if (raw.some((x) => !x.trim() || !Number.isFinite(Number(x))))
       throw new Error("Column contains invalid numeric values.");
-    const values = raw.map(Number),
-      cuts = cutsFor(values, method, bins, manual);
+    const values = raw.map(Number);
     let min = Infinity,
       max = -Infinity;
     for (const n of values) {
       min = Math.min(min, n);
       max = Math.max(max, n);
     }
+    const choice =
+      bounds ??
+      existing?.binning?.bounds ??
+      (existing?.binning
+        ? { lower: "unbounded", upper: "unbounded" }
+        : { lower: "observed", upper: "observed" });
+    const lower =
+      choice.lower === "observed"
+        ? min
+        : choice.lower === "zero"
+          ? 0
+          : choice.lower === "custom"
+            ? choice.min
+            : undefined;
+    const upper =
+      choice.upper === "observed"
+        ? max
+        : choice.upper === "custom"
+          ? choice.max
+          : undefined;
+    if (
+      (choice.lower !== "unbounded" && !Number.isFinite(lower)) ||
+      (choice.upper !== "unbounded" && !Number.isFinite(upper)) ||
+      (lower ?? -Infinity) >= (upper ?? Infinity)
+    )
+      throw new Error("Set a lower bin bound strictly below the upper bound.");
+    const eligible = values.filter(
+      (n) => n >= (lower ?? -Infinity) && n <= (upper ?? Infinity),
+    );
+    const fit =
+      method === "equalWidth" &&
+      eligible.length &&
+      (lower !== undefined || upper !== undefined)
+        ? [...eligible, lower ?? min, upper ?? max]
+        : eligible;
+    const cuts = cutsFor(fit, method, bins, manual);
+    if (
+      cuts.some(
+        (c) =>
+          !Number.isFinite(c) ||
+          c <= (lower ?? -Infinity) ||
+          c > (upper ?? Infinity),
+      )
+    )
+      throw new Error(
+        "Internal cuts must be above the lower bound and at or below the upper bound.",
+      );
     v.binning = {
       method,
       cuts,
@@ -186,11 +238,15 @@ export function configureVariable(
       fittedRange: [min, max],
       algorithmVersion: "1",
       closure: "leftClosed",
+      bounds: {
+        lower: choice.lower,
+        upper: choice.upper,
+        min: lower,
+        max: upper,
+      },
     };
-    v.states = Array.from(
-      { length: cuts.length + 1 },
-      (_, i) =>
-        `${i === 0 ? "(−∞" : `[${cuts[i - 1]}`}, ${i === cuts.length ? "+∞" : cuts[i]})`,
+    v.states = Array.from({ length: cuts.length + 1 }, (_, i) =>
+      binLabel(v, i, String),
     );
   } else {
     if (
@@ -226,9 +282,18 @@ export function prepareRows(dataset: Dataset, p: Project) {
   const indices = p.variables.map((v) =>
     v.columnId ? Number(v.columnId.slice(1)) : -1,
   );
-  const retained = dataset.rows.filter((row) =>
-    indices.every((i) => i < 0 || !p.missingTokens.includes(row[i])),
-  );
+  const missing = new Set(p.missingTokens);
+  let outOfRange = 0;
+  const retained = dataset.rows.filter((row) => {
+    const outside = indices.some(
+      (i, j) =>
+        i >= 0 &&
+        !missing.has(row[i]) &&
+        outsideBinBounds(p.variables[j], Number(row[i])),
+    );
+    if (outside) outOfRange++;
+    return !outside && indices.every((i) => i < 0 || !missing.has(row[i]));
+  });
   if (!retained.length)
     throw new ModelError(
       "EMPTY_DATASET",
@@ -242,6 +307,7 @@ export function prepareRows(dataset: Dataset, p: Project) {
     ),
     retained: retained.length,
     dropped: dataset.rows.length - retained.length,
+    outOfRange,
   };
 }
 export function train(

@@ -93,7 +93,9 @@ test("CSV → build → training → query evidence → posterior → save/open 
   await evidence
     .getByRole("combobox", { name: "Material", exact: true })
     .selectOption({ label: "Aluminium" });
-  await page.getByRole("button", { name: "Run query", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Run selected query", exact: true })
+    .click();
   await expect(
     page.getByText("Current results", { exact: true }),
   ).toBeVisible();
@@ -130,7 +132,9 @@ test("CSV → build → training → query evidence → posterior → save/open 
     page.getByText("Source attached", { exact: true }),
   ).toBeVisible();
   await openExploration(page, "Queries");
-  await page.getByRole("button", { name: "Run query", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Run selected query", exact: true })
+    .click();
   await expect(
     page.getByText("Current results", { exact: true }),
   ).toBeVisible();
@@ -175,7 +179,7 @@ test("cyclic drafts survive embedded save/open and can be repaired in Build", as
   ).toBeDisabled();
   await openExploration(page, "Queries");
   await expect(
-    page.getByRole("button", { name: "Run query", exact: true }),
+    page.getByRole("button", { name: "Run selected query", exact: true }),
   ).toBeDisabled();
   await build(page);
   await page
@@ -230,7 +234,7 @@ test("numeric cuts, precision-only edits, missing rows and exact-boundary eviden
   await page
     .getByRole("spinbutton", { name: "Decimal places", exact: true })
     .press("Tab");
-  await expect(page.locator(".states")).toContainText("[10.000, +∞)");
+  await expect(page.locator(".states")).toContainText("[10.000, 15.000]");
   await openExploration(page, "Network");
   await page.getByText("Connections · keyboard controls").click();
   const c = page.locator(".connection-controls");
@@ -263,7 +267,9 @@ test("numeric cuts, precision-only edits, missing rows and exact-boundary eviden
       .getByRole("group", { name: "Query evidence", exact: true })
       .getByRole("combobox", { name: "Temperature", exact: true }),
   ).toHaveValue("1");
-  await page.getByRole("button", { name: "Run query", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Run selected query", exact: true })
+    .click();
   await expect(
     page.getByText("Current results", { exact: true }),
   ).toBeVisible();

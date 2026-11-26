@@ -1,5 +1,5 @@
 import { expect, type Page } from "@playwright/test";
-import { emptyProject } from "../../src/domain";
+import { emptyProject, type Dataset, type Project } from "../../src/domain";
 import { configureVariable, parseCsv } from "../../src/processing";
 
 export async function openExploration(
@@ -19,7 +19,10 @@ export async function openExploration(
 }
 
 /** Small discrete network used by tests that assert specific posterior values. */
-export async function openDiscreteFixture(page: Page) {
+export async function openDiscreteFixture(
+  page: Page,
+  prepare?: (project: Project, dataset: Dataset) => void,
+) {
   const csv = [
     "Load,Material,Failure",
     "Low,Steel,No",
@@ -71,6 +74,7 @@ export async function openDiscreteFixture(page: Page) {
   project.queryGroups = [
     { id: crypto.randomUUID(), name: "Load", targetIds: [load.id] },
   ];
+  prepare?.(project, dataset);
   await page.getByTestId("project-file").setInputFiles({
     name: "discrete-fixture.json",
     mimeType: "application/json",

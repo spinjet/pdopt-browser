@@ -1,3 +1,4 @@
+import { probabilityPercent } from "./query-figure";
 import { instance } from "@viz-js/viz";
 import { stateLabel, evidenceLabel, type Project } from "./domain";
 import { contrastText, rgbFromHex } from "./colors";
@@ -123,7 +124,8 @@ function layoutDot(
         throw new Error("Missing current node probabilities.");
       states.push(
         ...v.states.map(
-          (_, k) => `${stateLabel(v, k)}: ${(values[k] * 100).toFixed(3)}%`,
+          (_, k) =>
+            `${stateLabel(v, k)}: ${probabilityPercent(values[k], p.probabilityDecimalPlaces)}`,
         ),
       );
     }

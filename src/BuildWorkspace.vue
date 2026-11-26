@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDecimal } from "./query-figure";
 import GraphExport from "./GraphExport.vue";
 import { computed, nextTick, ref, watch } from "vue";
 import {
@@ -140,6 +141,12 @@ const edges = computed(() =>
     markerEnd: "arrowclosed",
   })),
 );
+const lowerBound = ref<"observed" | "zero" | "custom" | "unbounded">(
+  "observed",
+);
+const upperBound = ref<"observed" | "custom" | "unbounded">("observed");
+const customMin = ref<number>();
+const customMax = ref<number>();
 watch(
   () => selected.value?.id,
   (id) => {
@@ -161,6 +168,12 @@ function inspect(id: string) {
     binMethod.value = v.binning?.method || "equalWidth";
     bins.value = v.binning?.requestedBins || 3;
     manual.value = v.binning?.cuts.join(", ") || "";
+    lowerBound.value =
+      v.binning?.bounds?.lower ?? (v.binning ? "unbounded" : "observed");
+    upperBound.value =
+      v.binning?.bounds?.upper ?? (v.binning ? "unbounded" : "observed");
+    customMin.value = v.binning?.bounds?.min ?? v.binning?.fittedRange[0];
+    customMax.value = v.binning?.bounds?.max ?? v.binning?.fittedRange[1];
   }
 }
 async function addColumn(i: number) {
@@ -186,6 +199,12 @@ function configure() {
       .split(",")
       .filter((x) => x.trim())
       .map(Number),
+    {
+      lower: lowerBound.value,
+      upper: upperBound.value,
+      min: customMin.value,
+      max: customMax.value,
+    },
   );
 }
 function connect(c: Connection) {
@@ -580,8 +599,34 @@ function parentAssignment(
               ><label v-else class="field"
                 >Thresholds (comma-separated)<input
                   v-model="manual"
-                  placeholder="10, 20, 30" /></label
-            ></template>
+                  placeholder="10, 20, 30"
+              /></label>
+              <label class="field"
+                >Lower bin bound
+                <select v-model="lowerBound">
+                  <option value="observed">Observed minimum</option>
+                  <option value="zero">Zero</option>
+                  <option value="custom">Custom</option>
+                  <option value="unbounded">Unbounded</option>
+                </select>
+              </label>
+              <label v-if="lowerBound === 'custom'" class="field"
+                >Custom lower bound
+                <input v-model.number="customMin" type="number" step="any" />
+              </label>
+              <label class="field"
+                >Upper bin bound
+                <select v-model="upperBound">
+                  <option value="observed">Observed maximum</option>
+                  <option value="custom">Custom</option>
+                  <option value="unbounded">Unbounded</option>
+                </select>
+              </label>
+              <label v-if="upperBound === 'custom'" class="field"
+                >Custom upper bound
+                <input v-model.number="customMax" type="number" step="any" />
+              </label>
+            </template>
             <button
               class="wide"
               @click="configure"
@@ -674,9 +719,9 @@ function parentAssignment(
               Apply state names
             </button>
             <p v-if="selected.binning" class="tiny muted">
-              Exact cuts enter the upper bin. Outer bins cover values beyond the
-              fitted range. Numeric values are discretised, not modelled as
-              continuous densities.
+              Exact cuts enter the upper bin. Finite outer endpoints are
+              included. Values beyond finite endpoints are excluded from
+              training.
             </p>
           </template>
           <details v-if="selectedCpt" class="cpt">
@@ -721,9 +766,10 @@ function parentAssignment(
                     </th>
                     <td v-for="(_, k) in selected.states" :key="k">
                       {{
-                        selectedCpt.values[
-                          row * selected.states.length + k
-                        ].toFixed(5)
+                        formatDecimal(
+                          selectedCpt.values[row * selected.states.length + k],
+                          st.project.probabilityDecimalPlaces,
+                        )
                       }}<small
                         >count
                         {{
@@ -757,6 +803,9 @@ function parentAssignment(
         <p v-if="st.trainingPreview?.stamp === st.trainingStamp()">
           {{ st.trainingPreview.retained }} rows retained ·
           {{ st.trainingPreview.dropped }} excluded
+          <span v-if="st.trainingPreview.outOfRange"
+            >({{ st.trainingPreview.outOfRange }} outside bin bounds)</span
+          >
         </p>
         <p v-if="st.project.variables.some((v) => v.columnId) && !st.dataset">
           Reattach the matching CSV in Data to train.

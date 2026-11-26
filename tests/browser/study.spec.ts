@@ -18,7 +18,7 @@ async function loadDesignQuery(page: Page) {
   await expect(page.getByRole("status")).toContainText("Trained 8 CPTs");
   await openExploration(page, "Queries");
   await page.getByRole("tab", { name: "Design space" }).click();
-  await page.getByRole("button", { name: "Run query" }).click();
+  await page.getByRole("button", { name: "Run selected query" }).click();
   await expect(
     page.getByText("Current results", { exact: true }),
   ).toBeVisible();
@@ -174,7 +174,9 @@ test("keeps trained query results after appending an unused beam formula", async
   ).toBeVisible();
   await openExploration(page, "Queries");
   await page.getByRole("tab", { name: "Design space", exact: true }).click();
-  await page.getByRole("button", { name: "Run query", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Run selected query", exact: true })
+    .click();
   await expect(result).toBeVisible();
   expect(
     await result
@@ -400,4 +402,51 @@ test("cancels a pending study fit and retries in a fresh worker", async ({
   await expect(
     study.getByRole("button", { name: "Search retained regions" }),
   ).toBeEnabled();
+});
+
+test("sampling keeps seeded draws and reuses compatible cantilever study models", async ({
+  page,
+}) => {
+  await loadDesignQuery(page);
+  await page
+    .getByRole("button", { name: "Start study from this query" })
+    .click();
+  await page.getByRole("button", { name: "Run", exact: true }).click();
+  await page.getByRole("button", { name: /fit.*surrogate/i }).click();
+  await expect(page.getByRole("button", { name: /search/i })).toBeEnabled();
+  await page.getByRole("tab", { name: "Sampling", exact: true }).click();
+  await page.getByRole("spinbutton", { name: "Sample count" }).fill("20");
+  const baseZIP = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download samples ZIP" }).click();
+  await page.getByRole("button", { name: "Generate samples" }).click();
+  await page.getByText("Predict additional variables", { exact: true }).click();
+  const inputs = page.getByRole("group", { name: "Prediction inputs" });
+  const outputs = page.getByRole("group", { name: "Prediction outputs" });
+  await outputs
+    .getByRole("checkbox", { name: "Beam mass (kg)", exact: true })
+    .check();
+  await inputs.getByRole("checkbox", { name: /Tip load/ }).check();
+  await page.getByRole("button", { name: "Fit or reuse surrogates" }).click();
+  await expect(page.getByRole("alert")).toBeVisible();
+  await inputs.getByRole("checkbox", { name: /Tip load/ }).uncheck();
+  await page.getByRole("button", { name: "Fit or reuse surrogates" }).click();
+  await expect(page.getByText(/Study model ·/)).toBeVisible();
+  await page.getByRole("button", { name: "Apply predictions" }).click();
+  const predictedZIP = page.waitForEvent("download");
+  await page
+    .getByRole("button", { name: "Download samples with predictions" })
+    .click();
+  const { unzipSync, strFromU8 } = await import("fflate");
+  const readZip = async (event: typeof baseZIP) =>
+    unzipSync(await readFile((await (await event).path())!));
+  const base = await readZip(baseZIP);
+  const prediction = await readZip(predictedZIP);
+  const rows = (zip: typeof prediction) =>
+    Papa.parse<string[]>(strFromU8(zip["samples.csv"]), {
+      skipEmptyLines: true,
+    }).data.slice(1);
+  expect(rows(prediction).map((row) => row.slice(0, 3))).toEqual(rows(base));
+  const manifest = JSON.parse(strFromU8(prediction["manifest.json"]));
+  expect(manifest.surrogates[0].reused).toBe(true);
+  expect(manifest.columns.at(-1).source).toBe("predicted");
 });

@@ -1,3 +1,4 @@
+import { numericBounds } from "./domain";
 import {
   allowedStates,
   inferenceReady,
@@ -75,9 +76,10 @@ export function statesBounds(v: Variable, state: number): SearchDimension {
       values: [isCategorical(v) ? v.states[state] : Number(v.states[state])],
     };
   const { cuts } = v.binning;
+  const [min, max] = numericBounds(v);
   return {
-    min: cuts[state - 1] ?? -Infinity,
-    max: cuts[state] === undefined ? Infinity : nextDown(cuts[state]),
+    min: cuts[state - 1] ?? min,
+    max: cuts[state] === undefined ? max : nextDown(cuts[state]),
   };
 }
 
@@ -240,12 +242,15 @@ function inputDimension(
     );
     return values.length ? { values } : undefined;
   }
+  const [lower, upper] = numericBounds(v);
   const min = Math.max(
     node.min,
+    lower,
     interval && "min" in interval ? interval.min : -Infinity,
   );
   const max = Math.min(
     node.max,
+    upper,
     interval && "max" in interval ? interval.max : Infinity,
   );
   return min <= max ? { min, max } : undefined;
@@ -472,6 +477,7 @@ export function diagnosticProbabilities<
 >(study: Study, run: (project: Project) => Promise<T>) {
   const base: Project = {
     ...study.snapshot,
+    schemaVersion: 4,
     evidence: {},
     queryGroups: [
       { id: study.groupId, name: "Study regions", targetIds: study.targetIds },

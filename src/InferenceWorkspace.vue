@@ -12,11 +12,10 @@ import { validateQueries, querySize, QUERY_LIMITS } from "./engine";
 import { download } from "./files";
 import ProbabilityGraph from "./ProbabilityGraph.vue";
 import EvidenceControl from "./EvidenceControl.vue";
-import SampleExport from "./SampleExport.vue";
 import QueryResults from "./QueryResults.vue";
 import { initialiseStudy } from "./study";
 const st = useProject();
-const view = defineModel<"graph" | "distribution" | "samples">("view", {
+const view = defineModel<"graph" | "distribution">("view", {
   required: true,
 });
 const activeGroupId = toRef(st, "activeGroupId");
@@ -29,7 +28,22 @@ watch(
 );
 const active = toRef(st, "activeQuery");
 async function run() {
-  if (active.value && (await st.query(active.value))) {
+  const group = active.value;
+  if (group && (await st.query(group))) {
+    activeGroupId.value = group.id;
+    view.value = "distribution";
+    st.activeTab = "results";
+    await nextTick();
+    document.getElementById("results-tab")?.focus();
+  }
+}
+async function runAll() {
+  if (await st.runQueries()) {
+    if (!st.current)
+      activeGroupId.value =
+        st.project.queryGroups.find(
+          (g) => st.queryStatuses[g.id]?.state === "completed",
+        )?.id ?? activeGroupId.value;
     view.value = "distribution";
     st.activeTab = "results";
     await nextTick();
@@ -45,11 +59,14 @@ function editQuery() {
   st.activeTab = "queries";
   document.getElementById("queries-tab")?.focus();
 }
-const resultProject = computed(() =>
-  st.current && st.resultSnapshot
-    ? { ...st.resultSnapshot, variables: st.project.variables }
-    : (st.resultSnapshot ?? st.project),
-);
+const resultProject = computed(() => ({
+  ...(st.resultSnapshot ?? st.project),
+  variables: st.current
+    ? st.project.variables
+    : (st.resultSnapshot ?? st.project).variables,
+  heatmapPalette: st.project.heatmapPalette,
+  probabilityDecimalPlaces: st.project.probabilityDecimalPlaces,
+}));
 const queryError = computed(() => {
   try {
     inferenceReady(st.project);
@@ -61,7 +78,10 @@ const queryError = computed(() => {
     return (e as Error).message;
   }
 });
-const completedGroup = computed(() => st.resultSnapshot?.queryGroups[0]);
+const completedGroup = computed(() => {
+  const group = st.resultSnapshot?.queryGroups[0];
+  return group && { ...group, name: active.value?.name ?? group.name };
+});
 const result = computed(
   () => completedGroup.value && st.results?.groups[completedGroup.value.id],
 );
@@ -94,7 +114,7 @@ async function startStudy() {
   )
     return;
   try {
-    const project = st.resultSnapshot ?? resultProject.value;
+    const project = resultProject.value;
     st.project.study = initialiseStudy(
       project,
       result.value,
@@ -340,10 +360,41 @@ function exportGroup() {
         </p>
         <p v-if="queryError" class="query-blocker">{{ queryError }}</p>
       </div>
-      <button class="primary" @click="run" :disabled="st.busy || !!queryError">
-        Run query
-      </button>
+      <div class="result-actions">
+        <button
+          class="primary"
+          @click="run"
+          :disabled="st.busy || st.batchRunning || !!queryError"
+        >
+          Run selected query
+        </button>
+        <button
+          @click="runAll"
+          :disabled="
+            st.busy || st.batchRunning || !st.project.queryGroups.length
+          "
+        >
+          Run all queries
+        </button>
+      </div>
     </div>
+    <ul
+      v-if="Object.keys(st.queryStatuses).length"
+      class="query-statuses"
+      aria-live="polite"
+    >
+      <li
+        v-for="g in st.project.queryGroups.filter(
+          (group) => st.queryStatuses[group.id],
+        )"
+        :key="g.id"
+      >
+        {{ g.name }} · {{ st.queryStatuses[g.id].state }}
+        <span v-if="st.queryStatuses[g.id].message">
+          · {{ st.queryStatuses[g.id].message }}</span
+        >
+      </li>
+    </ul>
   </main>
   <main
     id="results-panel"
@@ -355,6 +406,21 @@ function exportGroup() {
     <header class="workspace-heading results-heading">
       <div>
         <div class="view-switch" role="group" aria-label="Results view">
+          <label class="result-inline query-select"
+            >Query
+            <select
+              v-model="activeGroupId"
+              :disabled="!st.project.queryGroups.length"
+            >
+              <option
+                v-for="g in st.project.queryGroups"
+                :key="g.id"
+                :value="g.id"
+              >
+                {{ g.name }}
+              </option>
+            </select>
+          </label>
           <button :aria-pressed="view === 'graph'" @click="view = 'graph'">
             Network graph
           </button>
@@ -364,18 +430,11 @@ function exportGroup() {
           >
             Query results
           </button>
-          <button
-            v-if="result"
-            :aria-pressed="view === 'samples'"
-            @click="view = 'samples'"
-          >
+          <button v-if="st.current" @click="st.activeTab = 'sampling'">
             Sample distribution
           </button>
         </div>
         <template v-if="result && completedGroup">
-          <p>
-            <strong>{{ completedGroup.name }}</strong>
-          </p>
           <p class="query-notation">
             {{ probabilityNotation(resultProject, result.targetIds) }}
           </p>
@@ -388,7 +447,17 @@ function exportGroup() {
           }}
         </p>
       </div>
-      <button @click="editQuery">Edit query</button>
+      <div class="results-heading-actions">
+        <button
+          v-if="result"
+          class="primary"
+          :disabled="!st.current || st.busy"
+          @click="startStudy"
+        >
+          Start study from this query
+        </button>
+        <button @click="editQuery">Edit query</button>
+      </div>
     </header>
 
     <ProbabilityGraph
@@ -403,13 +472,6 @@ function exportGroup() {
       <template v-if="result && completedGroup">
         <div class="results-toolbar">
           <span v-if="st.current" class="tiny muted">Current results</span>
-          <button
-            class="primary"
-            :disabled="!st.current || st.busy"
-            @click="startStudy"
-          >
-            Start study from this query
-          </button>
           <details class="result-exports">
             <summary>Export results</summary>
             <div class="result-actions">
@@ -420,24 +482,26 @@ function exportGroup() {
           </details>
         </div>
         <QueryResults
+          :key="completedGroup.id"
           :project="resultProject"
           :result="result"
           :caption="probabilityNotation(resultProject, result.targetIds)"
           :current="st.current"
+          @palette="
+            (value) => {
+              st.project.heatmapPalette = value;
+              st.touch('display');
+            }
+          "
+          @digits="
+            (value) => {
+              st.project.probabilityDecimalPlaces = value;
+              st.touch('display');
+            }
+          "
         />
       </template>
       <p v-else class="empty-results">Run a query to see its results here.</p>
-    </section>
-    <section
-      v-if="completedGroup"
-      v-show="view === 'samples'"
-      class="results-content query-samples"
-      aria-label="Query samples"
-    >
-      <p v-if="!st.current" class="outdated-label">
-        Run the query again to generate current samples.
-      </p>
-      <SampleExport :key="completedGroup.id" :group-id="completedGroup.id" />
     </section>
   </main>
 </template>

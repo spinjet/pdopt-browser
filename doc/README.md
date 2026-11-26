@@ -1,0 +1,13 @@
+# PDOPT-BN manual
+
+PDOPT is a statically hosted Vue application for building Bayesian networks, investigating conditional distributions, sampling from them, and searching a design space. Uploaded CSVs, training, inference, exports, and surrogate evaluation stay in the browser.
+
+| Topic                                                        | Where to read                                                                                                                                                                                                 |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Vue views, Pinia state, workers, and project files           | [Architecture and file format](architecture.md)                                                                                                                                                               |
+| CSV handling, encoding, training, inference, and figures     | [Bayesian network methods](bayesian-network.md)                                                                                                                                                               |
+| Joint sampling, surrogate models, coverage, and optimisation | [Sampling and optimisation methods](design.md)                                                                                                                                                                |
+| Edit or add help and tutorial pages                          | [Help authoring](help-authoring.md)                                                                                                                                                                           |
+| Worked example                                               | [Cantilever beam tutorial](help/cantilever.md)                                                                                                                                                                |
+| Build, deploy, and verify                                    | [Hosting](hosting.md) · [Verification](verification.md)                                                                                                                                                       |
+| Earlier implementation decisions                             | [Browser engine](decisions/001-browser-engine.md) · [Joint queries](decisions/002-workspaces-joint-queries.md) · [Study benchmarks](study-benchmark.md) · [Python reference behavior](reference-behaviour.md) |

@@ -43,7 +43,9 @@ async function train(page: Page) {
 }
 async function run(page: Page) {
   await openExploration(page, "Queries");
-  await page.getByRole("button", { name: "Run query", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Run selected query", exact: true })
+    .click();
   await expect(
     page.getByText("Current results", { exact: true }),
   ).toBeVisible();
@@ -92,7 +94,7 @@ test("four-side connections, exact numeric events, image and dependent sample do
     .fill("7");
   await event.getByRole("button", { name: "Apply threshold" }).click();
   await expect(
-    page.getByRole("button", { name: "Run query", exact: true }),
+    page.getByRole("button", { name: "Run selected query", exact: true }),
   ).toBeDisabled();
   await event.getByRole("button", { name: "Add exact cut & retrain" }).click();
   await expect(
@@ -116,7 +118,7 @@ test("four-side connections, exact numeric events, image and dependent sample do
   await expect(edge).toHaveAttribute("marker-end", `url('#${markerId}')`);
   await expect(
     page.locator("#results-panel .network-node").first(),
-  ).toContainText("0.0%");
+  ).toContainText("0.000%");
   await page
     .getByRole("button", { name: "Query results", exact: true })
     .click();
@@ -176,6 +178,7 @@ test("four-side connections, exact numeric events, image and dependent sample do
     .getByRole("button", { name: "Scatter plot", exact: true })
     .click();
   await expect(analytics.getByRole("status")).toContainText("1 of 100");
+  await openExploration(page, "Results");
   await page
     .getByRole("button", { name: "Network graph", exact: true })
     .click();
@@ -218,7 +221,7 @@ test("four-side connections, exact numeric events, image and dependent sample do
   const saved = JSON.parse(
     await readFile((await (await savePromise).path())!, "utf8"),
   );
-  expect(saved.schemaVersion).toBe(3);
+  expect(saved.schemaVersion).toBe(4);
   expect(saved.edges[0]).toMatchObject({
     sourceHandle: "top",
     targetHandle: "bottom",

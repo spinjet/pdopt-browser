@@ -1,3 +1,4 @@
+import { binBoundsSchema, outsideBinBounds } from "./domain";
 import ELK from "elkjs/lib/elk-api.js";
 import { z } from "zod";
 import {
@@ -211,9 +212,10 @@ self.onmessage = async ({ data }) => {
               method: z.enum(["manual", "equalWidth", "quantile"]),
               bins: z.number().int(),
               manual: z.array(z.number().finite()),
+              bounds: binBoundsSchema.optional(),
             })
             .parse(p.options);
-          result = configureVariable(
+          const variable = configureVariable(
             p.dataset,
             project,
             o.columnId,
@@ -221,13 +223,27 @@ self.onmessage = async ({ data }) => {
             o.method,
             o.bins,
             o.manual,
+            o.bounds,
           );
+          const column = Number(o.columnId.slice(1));
+          const missing = new Set(project.missingTokens);
+          const excluded = p.dataset.rows.reduce(
+            (count, row) =>
+              count +
+              Number(
+                !missing.has(row[column]) &&
+                  outsideBinBounds(variable, Number(row[column])),
+              ),
+            0,
+          );
+          result = { variable, excluded };
         } else if (request.op === "preview") {
           if (!p.dataset) throw new Error("Attach a source CSV first.");
           const prepared = prepareRows(p.dataset, project);
           result = {
             retained: prepared.retained,
             dropped: prepared.dropped,
+            outOfRange: prepared.outOfRange,
             counts: project.variables.map((v, i) => {
               const counts = v.states.map(() => 0);
               if (v.columnId)

@@ -1,53 +1,41 @@
 <script setup lang="ts">
-import { ref } from "vue";
-import CantileverTutorial from "./CantileverTutorial.vue";
+import { computed, ref } from "vue";
+import MarkdownIt from "markdown-it";
+import beamDiagram from "../doc/help/cantilever-beam.svg";
 
-const props = defineProps<{ tab: keyof typeof help }>();
+const props = defineProps<{
+  tab:
+    | "data"
+    | "network"
+    | "states"
+    | "queries"
+    | "graph"
+    | "distribution"
+    | "samples"
+    | "setup"
+    | "run"
+    | "explore";
+}>();
 const width = defineModel<number>("width", { required: true });
 const emit = defineEmits<{ close: [] }>();
 const mode = ref<"tutorial" | "context">("context");
-const help = {
-  data: {
-    title: "Data",
-    text: "Import a CSV, sample a column or calculate one from existing columns. Review the data before adding variables to the network. Save project embeds the current dataset by default.",
-  },
-  network: {
-    title: "Network",
-    text: "Add variables from the dataset or create manual nodes. Drag from a parent’s handle to a child’s handle to define a dependency. Use Auto layout to arrange nodes and Fit view to see the whole graph.",
-  },
-  states: {
-    title: "States & training",
-    text: "Select a variable to edit its states or set bin boundaries for continuous values. Review the usable rows, then train the conditional probability tables before running a query.",
-  },
-  queries: {
-    title: "Queries",
-    text: "Choose the variables you want to learn about as targets and set their known conditions under Query evidence. Each query keeps its own evidence. Duplicate a query to try another case.",
-  },
-  graph: {
-    title: "Results · Network graph",
-    text: "Inspect how the query’s evidence updates state probabilities across the network. Use Fit view to recenter the graph or Export network image to save a labelled SVG or PNG.",
-  },
-  distribution: {
-    title: "Results · Query results",
-    text: "Inspect the query as a chart or table. For queries with more than two targets, select a heatmap slice. Use Export figure for publication graphics or Export table CSV for the filtered rows.",
-  },
-  samples: {
-    title: "Results · Sample distribution",
-    text: "Generate a seeded sample from the full joint posterior. Brush axes or select points to inspect the same rows across plots and the sample table.",
-  },
-  setup: {
-    title: "Optimisation Study · Setup",
-    text: "Start a study from a query result. Review the retained design regions, then set inputs, fixed operating conditions, objectives and constraints.",
-  },
-  run: {
-    title: "Optimisation Study · Run",
-    text: "Fit surrogate models and review the held-out errors and missed constraint violations. Relative MAE expresses the average numeric error as a share of the observed range. Then search the retained regions.",
-  },
-  explore: {
-    title: "Optimisation Study · Explore",
-    text: "Compare predicted trade-offs on the Pareto plot and use parallel coordinates to filter designs. Open the design table to inspect and export the selected rows.",
-  },
+const help = import.meta.glob("../doc/help/*.md", {
+  eager: true,
+  query: "?raw",
+  import: "default",
+}) as Record<string, string>;
+const markdown = new MarkdownIt({ html: false });
+const imageRenderer = markdown.renderer.rules.image!;
+markdown.renderer.rules.image = (tokens, index, options, env, self) => {
+  const token = tokens[index];
+  if (token.attrGet("src") === "./cantilever-beam.svg")
+    token.attrSet("src", beamDiagram);
+  return imageRenderer(tokens, index, options, env, self);
 };
+const contextualHtml = computed(() =>
+  markdown.render(help[`../doc/help/${props.tab}.md`] ?? ""),
+);
+const tutorialHtml = markdown.render(help["../doc/help/cantilever.md"]);
 </script>
 
 <template>
@@ -82,8 +70,7 @@ const help = {
       role="region"
       aria-label="Tutorial steps"
     >
-      <h2>Cantilever beam tutorial</h2>
-      <CantileverTutorial />
+      <article v-html="tutorialHtml" />
     </div>
     <div
       v-show="mode === 'context'"
@@ -92,8 +79,7 @@ const help = {
       role="region"
       aria-label="Help for this view"
     >
-      <h3>{{ help[props.tab].title }}</h3>
-      <p>{{ help[props.tab].text }}</p>
+      <article v-html="contextualHtml" />
     </div>
   </aside>
 </template>

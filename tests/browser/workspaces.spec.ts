@@ -117,7 +117,7 @@ test("cantilever tutorial demonstrates bending failure and a mass-constrained de
     name: "Threshold for Beam mass (kg)",
   });
   await expect(threshold).toHaveValue("1");
-  await page.getByRole("button", { name: "Run query" }).click();
+  await page.getByRole("button", { name: "Run selected query" }).click();
   await expect(resultNotation).toHaveText(conditional);
   await expect(resultNotation).toBeVisible();
   await page.getByRole("checkbox", { name: "Show values" }).check();
@@ -127,7 +127,9 @@ test("cantilever tutorial demonstrates bending failure and a mass-constrained de
   const design = (b: number, h: number) =>
     heatmap.locator(`[data-cell="${b}-${h}"]`);
   const probability = (b: number, h: number) =>
-    expect.poll(async () => Number(await design(b, h).getAttribute("title")));
+    expect.poll(async () =>
+      parseFloat((await design(b, h).getAttribute("title")) ?? ""),
+    );
   await expect(heatmap.getByRole("button")).toHaveCount(16);
   await materialSlice.selectOption({ label: "Aluminium" });
   await probability(0, 1).toBeGreaterThan(0);
@@ -154,8 +156,16 @@ test("cantilever tutorial demonstrates bending failure and a mass-constrained de
     "Joint probability of the displayed combinations",
   );
   await exportDialog
-    .getByRole("combobox", { name: "Colour scheme" })
-    .selectOption("RdBu");
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
+  await page
+    .getByRole("combobox", { name: "Heatmap palette" })
+    .selectOption("Greens");
+  await page.getByRole("spinbutton", { name: "Decimal places" }).fill("6");
+  await page.getByRole("spinbutton", { name: "Decimal places" }).press("Tab");
+  await page
+    .getByRole("button", { name: "Export figure", exact: true })
+    .click();
   await exportDialog
     .getByRole("combobox", { name: "Caption", exact: true })
     .selectOption("custom");
@@ -173,7 +183,7 @@ test("cantilever tutorial demonstrates bending failure and a mass-constrained de
   );
   expect(customSvg).toContain("Steel geometry &amp; mass");
   expect(customSvg).not.toContain("Material = Steel");
-  expect(customSvg).toContain('stop-color="#67001f"');
+  expect(customSvg).toContain('stop-color="#f7fcf5"');
   const colorbarOnRight = await page.evaluate((svg) => {
     const doc = new DOMParser().parseFromString(svg, "image/svg+xml");
     const colorbar = doc.querySelector("[data-colorbar]")!;
@@ -258,9 +268,20 @@ test("cantilever tutorial demonstrates bending failure and a mass-constrained de
   await threshold.fill("2");
   await mass.getByRole("button", { name: "Apply threshold" }).click();
   await openExploration(page, "Results");
+  await page
+    .getByRole("button", { name: "Query results", exact: true })
+    .click();
+  const resultQuery = page
+    .locator("#results-panel")
+    .getByRole("combobox", { name: "Query", exact: true });
+  await expect(
+    page.getByText("Run a query to see its results here."),
+  ).toBeVisible();
+  await resultQuery.selectOption({ label: "Design space" });
   await expect(resultNotation).toHaveText(conditional);
+  await resultQuery.selectOption({ label: "Design space (copy)" });
   await openExploration(page, "Queries");
-  await page.getByRole("button", { name: "Run query" }).click();
+  await page.getByRole("button", { name: "Run selected query" }).click();
   await expect(
     page.getByText("Current results", { exact: true }),
   ).toBeVisible();
@@ -282,7 +303,7 @@ test("cantilever tutorial demonstrates bending failure and a mass-constrained de
     .getByRole("tab", { name: "Design space (copy)", exact: true })
     .click();
   await expect(queryNotation).toHaveText(conditional.replace("< 1", "< 2"));
-  await page.getByRole("button", { name: "Run query" }).click();
+  await page.getByRole("button", { name: "Run selected query" }).click();
   await expect(resultNotation).toHaveText(conditional.replace("< 1", "< 2"));
   await materialSlice.selectOption({ label: "Steel" });
   await probability(1, 1).toBeGreaterThan(0);
@@ -388,7 +409,7 @@ test("a 10 by 10 result fits on a laptop and shares probabilities with the netwo
     .getByRole("group", { name: "Query evidence" })
     .getByRole("combobox", { name: "Load", exact: true })
     .selectOption({ label: "Load 0" });
-  await page.getByRole("button", { name: "Run query" }).click();
+  await page.getByRole("button", { name: "Run selected query" }).click();
 
   const heatmap = page.locator(".joint-heatmap");
   await expect(heatmap.getByRole("button")).toHaveCount(100);
@@ -455,7 +476,7 @@ test("a 10 by 10 result fits on a laptop and shares probabilities with the netwo
   const load = page
     .locator(".probability-node")
     .filter({ has: page.getByText("Load", { exact: true }) });
-  await expect(load).toContainText("100.0%");
+  await expect(load).toContainText("100.000%");
   await load.getByRole("button", { name: "All 10 states" }).click();
   await expect(load).toContainText("Load 9");
   await page
@@ -490,6 +511,7 @@ test("groups exploration views and remembers the selected view", async ({
   await expect(workspace.getByRole("tab")).toHaveText([
     "Data",
     "Probabilistic Exploration",
+    "Sampling",
     "Optimisation Study",
   ]);
   await expect(views).toBeHidden();
