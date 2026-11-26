@@ -23,6 +23,8 @@ const StudyWorkspace = defineAsyncComponent(
 );
 const st = useProject(),
   openInput = ref<HTMLInputElement>();
+const version = import.meta.env.VITE_PDOPT_VERSION;
+const buildCommit = import.meta.env.VITE_PDOPT_BUILD;
 const helpOpen = ref(false);
 const helpWidth = ref(380);
 const resultView = ref<"graph" | "distribution">("distribution");
@@ -275,7 +277,11 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", beforeUnload));
       />
     </div>
     <footer>
-      PDOPT · Browser version<span>(c) Andrea Spinelli 2023-2026</span>
+      <span
+        >PDOPT · v{{ version
+        }}<template v-if="buildCommit"> ({{ buildCommit }})</template></span
+      >
+      <span>(c) Andrea Spinelli 2023-2026</span>
     </footer>
     <input
       data-testid="project-file"

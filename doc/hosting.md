@@ -21,6 +21,10 @@ Connect the `spinjet/pdopt-browser` repository and set the production branch to 
 
 Verify the build at its Pages preview URL before assigning the production custom domain. Use the root deployment settings for `pdopt.a-spinelli.com`.
 
+## Release version
+
+The footer shows the application version from `package.json`. Cloudflare Pages builds also show the first seven characters of `CF_PAGES_COMMIT_SHA` so that deployments with the same release number can be distinguished. To cut a release, update the version and lockfile together with `npm version <patch|minor|major> --no-git-tag-version`, then commit both files before deploying.
+
 ## Subdirectory deployment
 
 Build and verify with the same base path, including its trailing slash:
