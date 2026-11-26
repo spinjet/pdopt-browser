@@ -270,6 +270,9 @@ test("cantilever tutorial demonstrates bending failure and a mass-constrained de
   await threshold.fill("2");
   await mass.getByRole("button", { name: "Apply threshold" }).click();
   await openExploration(page, "Results");
+  await page
+    .getByRole("button", { name: "Query results", exact: true })
+    .click();
   const resultQuery = page
     .locator("#results-panel")
     .getByRole("combobox", { name: "Query", exact: true });
