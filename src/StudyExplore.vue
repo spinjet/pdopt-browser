@@ -2,6 +2,7 @@
 import { computed, ref } from "vue";
 import type { Dataset, Study, StudyValue } from "./domain";
 import { type StudyRun, isCategorical } from "./study";
+import { constraintDefinitions, constraintLabel } from "./study-constraints";
 import { csvCell, download } from "./files";
 import { displayValue, type Brush, type PlotPoint } from "./study-plot";
 import StudyScatter from "./StudyScatter.vue";
@@ -16,6 +17,23 @@ const baseSelection = ref<Set<string>>();
 const brushes = ref<Record<string, Brush | undefined>>({});
 const selectedOnly = ref(true);
 const page = ref(0);
+const candidateFilter = ref<"feasible" | "violated" | "unevaluable">(
+  "feasible",
+);
+const inspected = ref("");
+const candidate = computed(() =>
+  props.run.designs.find((d) => d.id === inspected.value),
+);
+const definitions = computed(() => constraintDefinitions(props.study));
+const variableName = (id: string) =>
+  props.study.snapshot.variables.find((v) => v.id === id)?.label ?? id;
+function requirement(id: string) {
+  const rule = definitions.value.find((rule) => rule.id === id);
+  return rule ? constraintLabel(props.study, rule) : id;
+}
+const predictedIds = computed(
+  () => new Set(props.run.validation.map((v) => v.id)),
+);
 const pageSize = 30;
 const floatPosition = ref<{ left: number; top: number }>();
 const wrapper = ref<HTMLElement>();
@@ -24,8 +42,7 @@ const variables = computed(() =>
   props.study.snapshot.variables.filter((v) => {
     const node = props.study.nodes[v.id];
     return (
-      ["input", "fixed"].includes(node.role) ||
-      (node.role === "response" && (node.objective || node.constraint))
+      ["input", "fixed"].includes(node.role) || predictedIds.value.has(v.id)
     );
   }),
 );
@@ -57,11 +74,12 @@ const paretoY = computed(
     objectives.value.find((a) => a.id !== paretoX.value.id) ?? paretoX.value,
 );
 const margins = computed(() =>
-  axes.value.filter(
-    (a) =>
-      props.study.nodes[a.id].role === "response" &&
-      props.study.nodes[a.id].constraint,
-  ),
+  definitions.value
+    .filter((rule) => rule.kind === "numeric")
+    .map((rule) => ({
+      id: rule.id,
+      label: constraintLabel(props.study, rule),
+    })),
 );
 const feasible = computed(() =>
   props.run.designs.filter((d) => d.predicted.feasible),
@@ -137,9 +155,13 @@ const selection = computed(() => {
   );
 });
 const table = computed(() =>
-  selectedOnly.value
-    ? plotted.value.filter((d) => selection.value.has(d.id))
-    : plotted.value,
+  candidateFilter.value !== "feasible"
+    ? props.run.designs.filter(
+        (d) => d.predicted.status.toLowerCase() === candidateFilter.value,
+      )
+    : plotted.value.filter(
+        (d) => !selectedOnly.value || selection.value.has(d.id),
+      ),
 );
 const shown = computed(() =>
   table.value.slice(page.value * pageSize, (page.value + 1) * pageSize),
@@ -279,6 +301,11 @@ function dragMove(event: PointerEvent) {
         Export selected CSV
       </button>
     </div>
+    <p v-if="run.summary" class="tiny muted">
+      Predicted search results · {{ run.summary.feasible }} feasible ·
+      {{ run.summary.violated }} violated ·
+      {{ run.summary.unevaluable }} unevaluable
+    </p>
     <p v-if="!feasible.length" class="study-empty">
       The search found no predicted feasible designs in these regions.
     </p>
@@ -352,7 +379,21 @@ function dragMove(event: PointerEvent) {
     </div>
     <section v-if="view === 'table'" aria-label="Design table">
       <div class="study-toolbar">
-        <label class="check"
+        <label class="field"
+          >Candidate status
+          <select
+            v-model="candidateFilter"
+            @change="
+              page = 0;
+              inspected = '';
+            "
+          >
+            <option value="feasible">Feasible</option>
+            <option value="violated">Violated</option>
+            <option value="unevaluable">Unevaluable</option>
+          </select>
+        </label>
+        <label v-if="candidateFilter === 'feasible'" class="check"
           ><input
             type="checkbox"
             v-model="selectedOnly"
@@ -395,12 +436,22 @@ function dragMove(event: PointerEvent) {
               }"
             >
               <th scope="row">
-                <button @click="select([d.id])">{{ d.id }}</button>
+                <button
+                  @click="
+                    inspected = d.id;
+                    if (d.predicted.feasible) select([d.id]);
+                  "
+                >
+                  {{ d.id }}
+                </button>
               </th>
               <td>{{ d.region + 1 }}</td>
-              <td>Predicted{{ d.predicted.pareto ? " · Pareto" : "" }}</td>
+              <td>
+                Predicted ·
+                {{ d.predicted.pareto ? "Pareto" : d.predicted.status }}
+              </td>
               <td v-for="axis in axes" :key="axis.id">
-                {{ valuesById.get(d.id)?.[axis.id] ?? "—" }}
+                {{ d.predicted.outputs[axis.id] ?? d.inputs[axis.id] ?? "—" }}
               </td>
               <td
                 v-for="axis in margins"
@@ -413,6 +464,79 @@ function dragMove(event: PointerEvent) {
           </tbody>
         </table>
       </div>
+      <section
+        v-if="candidate"
+        class="study-candidate-detail"
+        aria-label="Predicted candidate detail"
+      >
+        <h3>Predicted candidate {{ candidate.id }}</h3>
+        <p v-if="candidate.predicted.reason">
+          {{ candidate.predicted.reason }}
+        </p>
+        <dl>
+          <template
+            v-for="(value, id) in candidate.predicted.outputs"
+            :key="id"
+          >
+            <dt>{{ variableName(id) }}</dt>
+            <dd>
+              {{ displayValue(value) }}
+              <template
+                v-if="candidate.predicted.uncertainty?.[id] !== undefined"
+              >
+                · standard deviation
+                {{ displayValue(candidate.predicted.uncertainty[id]) }} ·
+                nominal 95% interval
+                {{
+                  displayValue(
+                    Number(value) - 1.96 * candidate.predicted.uncertainty[id],
+                  )
+                }}
+                to
+                {{
+                  displayValue(
+                    Number(value) + 1.96 * candidate.predicted.uncertainty[id],
+                  )
+                }}, conditional on supplied parent values
+              </template>
+            </dd>
+          </template>
+        </dl>
+        <div class="study-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Constraint / limit</th>
+                <th>Candidate values</th>
+                <th>Status</th>
+                <th>Signed margin</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="outcome in candidate.predicted.outcomes"
+                :key="outcome.id"
+              >
+                <th scope="row">{{ requirement(outcome.id) }}</th>
+                <td>
+                  {{
+                    Object.entries(outcome.values)
+                      .map(([id, value]) => variableName(id) + ": " + value)
+                      .join(", ") || "—"
+                  }}
+                </td>
+                <td>
+                  {{ outcome.status }}
+                  <div v-if="outcome.reason" class="tiny muted">
+                    {{ outcome.reason }}
+                  </div>
+                </td>
+                <td>{{ outcome.margin ?? "—" }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
     </section>
   </section>
 </template>

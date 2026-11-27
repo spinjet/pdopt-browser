@@ -18,10 +18,26 @@ import {
   isCategorical,
   selectRegions,
   statesBounds,
-  suggestPredictors,
   type StudyRegion,
 } from "./study";
 import { useProject } from "./store";
+import StudyConstraints from "./StudyConstraints.vue";
+import {
+  buildStudyPlan,
+  estimatorLabels,
+  predictorIds,
+  predictorMode,
+} from "./study-plan";
+import {
+  constraintDefinitions,
+  constraintLabel,
+  defaultValidationSeed,
+} from "./study-constraints";
+import {
+  GP_TRAINING_LIMIT,
+  GP_DATASET_LIMIT,
+  GP_FEATURE_LIMIT,
+} from "./study-estimators";
 
 const props = defineProps<{
   study: Study;
@@ -53,19 +69,84 @@ const nodeRoles = {
   fixed: "Operating condition",
   response: "Response",
 };
-const predictors = computed(() =>
-  node.value?.role === "response"
-    ? (node.value.predictors ?? suggestPredictors(props.study, selected.value))
-    : [],
+const editor = ref<InstanceType<typeof StudyConstraints>>();
+const modelled = computed(
+  () => node.value && ["response", "unused"].includes(node.value.role),
 );
+const mode = computed(() => predictorMode(props.study, selected.value));
+const predictors = computed(() =>
+  modelled.value ? predictorIds(props.study, selected.value) : [],
+);
+const modelPlan = computed(() => {
+  try {
+    return buildStudyPlan(props.study);
+  } catch {
+    return undefined;
+  }
+});
+const rules = computed(() => constraintDefinitions(props.study));
 const available = computed(() =>
   variables.value.filter(
     (v) =>
-      v.columnId && ["input", "fixed"].includes(props.study.nodes[v.id].role),
+      v.columnId &&
+      (mode.value === "parents"
+        ? props.study.nodes[v.id].role === "input"
+        : ["input", "fixed"].includes(props.study.nodes[v.id].role)),
   ),
 );
+const graphParents = computed(() =>
+  props.study.snapshot.edges
+    .filter((e) => e.target === selected.value)
+    .map((e) => e.source),
+);
+const activePath = computed(() => {
+  const ids = new Set<string>(),
+    links = new Set<string>();
+  function visit(id: string) {
+    if (ids.has(id)) return;
+    ids.add(id);
+    if (!["unused", "response"].includes(props.study.nodes[id]?.role)) return;
+    for (const parent of predictorIds(props.study, id)) {
+      links.add(parent + ":" + id);
+      if (props.study.nodes[parent]) visit(parent);
+    }
+  }
+  visit(selected.value);
+  return { ids, links };
+});
+function predictorLabel(id: string) {
+  return variables.value.find((v) => v.id === id)?.label ?? id;
+}
+function predictorSource(id: string) {
+  const role = props.study.nodes[id]?.role;
+  return role === "input"
+    ? "Design input"
+    : role === "fixed"
+      ? "Operating condition"
+      : "Predicted intermediate";
+}
+function updatePredictor(id: string, checked: boolean) {
+  if (mode.value === "parents") {
+    if (graphParents.value.includes(id)) return;
+    const extra = node.value.extraPredictors ?? [];
+    change({
+      extraPredictors: checked ? [...extra, id] : extra.filter((x) => x !== id),
+    });
+  } else list("predictors", id, checked, predictors.value);
+}
+function roleLabel(id: string) {
+  const role = props.study.nodes[id].role;
+  return role === "unused" &&
+    modelPlan.value?.models.some((entry) => entry.response.id === id)
+    ? "Predicted intermediate"
+    : nodeRoles[role];
+}
 const summary = computed(() =>
-  variables.value.filter((v) => props.study.nodes[v.id].role !== "unused"),
+  variables.value.filter(
+    (v) =>
+      props.study.nodes[v.id].role !== "unused" ||
+      modelPlan.value?.models.some((entry) => entry.response.id === v.id),
+  ),
 );
 const graphNodes = computed(() =>
   variables.value.map((v) => ({
@@ -74,26 +155,49 @@ const graphNodes = computed(() =>
     type: "study",
     data: {
       label: v.label,
-      role: nodeRoles[props.study.nodes[v.id].role],
+      role: roleLabel(v.id),
       objective: props.study.nodes[v.id].objective,
-      constraint: !!props.study.nodes[v.id].constraint,
+      constraint: rules.value.some(
+        (rule) => "variableId" in rule && rule.variableId === v.id,
+      ),
       selected: v.id === selected.value,
-      predictor: predictors.value.includes(v.id),
+      predictor: activePath.value.ids.has(v.id) && v.id !== selected.value,
       eligible:
         picking.value && available.value.some((item) => item.id === v.id),
     },
   })),
 );
 const sides = [Position.Top, Position.Right, Position.Bottom, Position.Left];
-const edges = computed(() =>
-  props.study.snapshot.edges.map((e) => ({
+const edges = computed(() => {
+  const original = props.study.snapshot.edges;
+  const visible = original.map((e) => ({
     ...e,
     sourceHandle: e.sourceHandle ?? "right",
     targetHandle: e.targetHandle ?? "left",
     markerEnd: { type: MarkerType.ArrowClosed, color: "#718599" },
-    style: { stroke: "#718599", strokeWidth: 2 },
-  })),
-);
+    style: activePath.value.links.has(e.source + ":" + e.target)
+      ? { stroke: "#0f766e", strokeWidth: 4 }
+      : { stroke: "#718599", strokeWidth: 2 },
+  }));
+  for (const key of activePath.value.links) {
+    const [source, target] = key.split(":");
+    if (
+      !props.study.nodes[source] ||
+      original.some((e) => e.source === source && e.target === target)
+    )
+      continue;
+    visible.push({
+      id: "study-predictor-" + key,
+      source,
+      target,
+      sourceHandle: "right",
+      targetHandle: "left",
+      markerEnd: { type: MarkerType.ArrowClosed, color: "#0f766e" },
+      style: { stroke: "#0f766e", strokeWidth: 3, strokeDasharray: "5 4" },
+    } as (typeof visible)[number]);
+  }
+  return visible;
+});
 const rows = computed(() =>
   onlyRetained.value ? selection.value.retained : selection.value.regions,
 );
@@ -120,7 +224,7 @@ function inspect(id: string) {
     available.value.some((v) => v.id === id) &&
     !props.busy
   ) {
-    list("predictors", id, !predictors.value.includes(id), predictors.value);
+    updatePredictor(id, !predictors.value.includes(id));
     return;
   }
   picking.value = false;
@@ -135,14 +239,6 @@ function role(event: Event) {
   const next = (event.target as HTMLSelectElement).value as StudyNode["role"];
   picking.value = false;
   change({ role: next });
-  if (next !== "input" && next !== "fixed") {
-    for (const other of Object.values(props.study.nodes)) {
-      if (other.predictors?.includes(selected.value))
-        other.predictors = other.predictors.filter(
-          (id) => id !== selected.value,
-        );
-    }
-  }
   if (next === "fixed" && node.value.value === undefined) {
     const states = fixedStates.value;
     if (isCategorical(variable.value))
@@ -174,47 +270,6 @@ function list(
       ? [...current, value]
       : current.filter((item) => item !== value),
   });
-}
-function constraint(kind: string) {
-  if (kind === "numeric")
-    change({ constraint: { kind, operator: "lt", value: 0 } });
-  else if (kind === "categories") change({ constraint: { kind, values: [] } });
-  else if (kind === "states") change({ constraint: { kind, states: [] } });
-  else change({ constraint: undefined });
-}
-function numericConstraint(patch: {
-  value?: number;
-  operator?: "lt" | "lte" | "gt" | "gte";
-}) {
-  if (node.value.constraint?.kind === "numeric")
-    change({ constraint: { ...node.value.constraint, ...patch } });
-}
-function setConstraintState(i: number, checked: boolean) {
-  const c = node.value.constraint;
-  if (c?.kind === "categories") {
-    const value = variable.value.states[i];
-    change({
-      constraint: {
-        ...c,
-        values: checked
-          ? [...c.values, value]
-          : c.values.filter((v) => v !== value),
-      },
-    });
-  } else if (c?.kind === "states") {
-    change({
-      constraint: {
-        ...c,
-        states: checked ? [...c.states, i] : c.states.filter((v) => v !== i),
-      },
-    });
-  }
-}
-function isConstraintState(i: number) {
-  const c = node.value.constraint;
-  return c?.kind === "states"
-    ? c.states.includes(i)
-    : c?.kind === "categories" && c.values.includes(variable.value.states[i]);
 }
 function setCoverage(event: Event) {
   const value = number(event);
@@ -283,6 +338,10 @@ function statesBoundsMax(v: typeof variable.value, state: number) {
       study bounds keeps its original probability. Coverage guides where the
       study searches. Candidate designs still have to satisfy the constraints.
       {{ percent(selection.available) }} of the posterior mass is eligible.
+    </p>
+    <p v-if="diagnostic" class="tiny muted">
+      The probability diagnostic uses the saved Bayesian query requirements.
+      Candidate constraints are evaluated during search.
     </p>
     <p v-if="selection.available + 1e-12 < study.coverage" class="field-error">
       {{
@@ -531,8 +590,8 @@ function statesBoundsMax(v: typeof variable.value, state: number) {
             />
           </label>
         </template>
-        <template v-else-if="node.role === 'response'">
-          <label v-if="!isCategorical(variable)"
+        <template v-else-if="modelled">
+          <label v-if="node.role === 'response' && !isCategorical(variable)"
             >Objective
             <select
               :value="node.objective ?? ''"
@@ -548,72 +607,60 @@ function statesBoundsMax(v: typeof variable.value, state: number) {
               <option value="max">Maximise</option>
             </select>
           </label>
-          <label
-            >Constraint
+          <label class="field"
+            >Predictor structure
             <select
-              :value="node.constraint?.kind ?? ''"
-              @change="constraint(($event.target as HTMLSelectElement).value)"
+              :value="mode"
+              @change="
+                (e) =>
+                  change({
+                    predictorMode: (e.target as HTMLSelectElement)
+                      .value as StudyNode['predictorMode'],
+                  })
+              "
             >
-              <option value="">None</option>
-              <option v-if="!isCategorical(variable)" value="numeric">
-                Numeric limit
-              </option>
-              <option
-                :value="isCategorical(variable) ? 'categories' : 'states'"
-              >
-                Accepted states
-              </option>
+              <option value="direct">Direct from inputs</option>
+              <option value="parents">Use graph parents</option>
             </select>
           </label>
-          <template v-if="node.constraint?.kind === 'numeric'">
-            <label
-              >Comparison
-              <select
-                :value="node.constraint.operator"
-                @change="
-                  numericConstraint({
-                    operator: ($event.target as HTMLSelectElement).value as
-                      'lt' | 'lte' | 'gt' | 'gte',
+          <label class="field"
+            >Estimator
+            <select
+              :value="node.estimator ?? 'forest'"
+              @change="
+                (e) =>
+                  change({
+                    estimator: (e.target as HTMLSelectElement)
+                      .value as StudyNode['estimator'],
                   })
-                "
-              >
-                <option value="lt">&lt;</option>
-                <option value="lte">≤</option>
-                <option value="gt">&gt;</option>
-                <option value="gte">≥</option>
-              </select>
-            </label>
-            <label
-              >Limit
-              <input
-                type="number"
-                step="any"
-                :value="node.constraint.value"
-                @change="
-                  number($event) !== undefined
-                    ? numericConstraint({ value: number($event) })
-                    : (($event.target as HTMLInputElement).value = String(
-                        node.constraint!.kind === 'numeric'
-                          ? node.constraint!.value
-                          : '',
-                      ))
-                "
-            /></label>
-          </template>
-          <div v-else-if="node.constraint" class="study-options">
-            <label v-for="(_, i) in variable.states" :key="i" class="check">
-              <input
-                type="checkbox"
-                :checked="isConstraintState(i)"
-                @change="
-                  setConstraintState(
-                    i,
-                    ($event.target as HTMLInputElement).checked,
-                  )
-                "
-              />{{ stateLabel(variable, i) }}
-            </label>
-          </div>
+              "
+            >
+              <option value="forest">{{ estimatorLabels.forest }}</option>
+              <template v-if="!isCategorical(variable)">
+                <option value="linear">{{ estimatorLabels.linear }}</option>
+                <option value="quadratic">
+                  {{ estimatorLabels.quadratic }}
+                </option>
+                <option
+                  v-if="variable.representation === 'discretised'"
+                  value="gaussian-process"
+                >
+                  {{ estimatorLabels["gaussian-process"] }}
+                </option>
+              </template>
+            </select>
+          </label>
+          <p v-if="node.estimator === 'gaussian-process'" class="tiny muted">
+            Fits up to {{ GP_TRAINING_LIMIT }} seeded training rows, with up to
+            {{ GP_FEATURE_LIMIT }} encoded predictors and
+            {{ GP_DATASET_LIMIT.toLocaleString() }} data rows. Constraints use
+            the predicted mean. Review interval coverage on the holdout.
+          </p>
+          <ul v-if="predictors.length" class="tiny">
+            <li v-for="id in predictors" :key="id">
+              {{ predictorLabel(id) }} · {{ predictorSource(id) }}
+            </li>
+          </ul>
           <h4>Predictors</h4>
           <button :aria-pressed="picking" @click="picking = !picking">
             {{ picking ? "Done picking on graph" : "Pick predictors on graph" }}
@@ -623,24 +670,41 @@ function statesBoundsMax(v: typeof variable.value, state: number) {
               <input
                 type="checkbox"
                 :checked="predictors.includes(v.id)"
+                :disabled="mode === 'parents' && graphParents.includes(v.id)"
                 @change="
-                  list(
-                    'predictors',
-                    v.id,
-                    ($event.target as HTMLInputElement).checked,
-                    predictors,
-                  )
+                  (e) =>
+                    updatePredictor(
+                      v.id,
+                      (e.target as HTMLInputElement).checked,
+                    )
                 "
               />{{ v.label }}
             </label>
           </div>
           <button
-            v-if="node.predictors"
+            v-if="mode === 'direct' && node.predictors"
             @click="change({ predictors: undefined })"
           >
             Use suggested predictors
           </button>
         </template>
+        <button
+          v-if="rules.length < 200"
+          type="button"
+          @click="editor?.openFor(selected)"
+        >
+          Add constraint for {{ variable.label }}
+        </button>
+        <button
+          v-for="rule in rules.filter(
+            (rule) => 'variableId' in rule && rule.variableId === selected,
+          )"
+          :key="rule.id"
+          type="button"
+          @click="editor?.edit(rule)"
+        >
+          Edit constraint · {{ constraintLabel(study, rule) }}
+        </button>
       </fieldset>
     </aside>
   </section>
@@ -648,7 +712,7 @@ function statesBoundsMax(v: typeof variable.value, state: number) {
     <h3>Problem summary</h3>
     <ul>
       <li v-for="v in summary" :key="v.id">
-        <strong>{{ v.label }}</strong> · {{ nodeRoles[study.nodes[v.id].role] }}
+        <strong>{{ v.label }}</strong> · {{ roleLabel(v.id) }}
         <template v-if="study.nodes[v.id].role === 'fixed'">
           · {{ study.nodes[v.id].value ?? "Choose a value" }}</template
         >
@@ -659,10 +723,68 @@ function statesBoundsMax(v: typeof variable.value, state: number) {
               study.nodes[v.id].objective === "min" ? "Minimise" : "Maximise"
             }}</template
           >
-          <template v-if="study.nodes[v.id].constraint"> · Constraint</template>
         </template>
       </li>
     </ul>
+    <div class="study-toolbar">
+      <label class="field"
+        >Validation seed
+        <input
+          type="number"
+          min="0"
+          max="4294967295"
+          step="1"
+          :value="study.validationSeed ?? defaultValidationSeed"
+          :disabled="busy"
+          @change="
+            (e) => {
+              const input = e.target as HTMLInputElement;
+              const value = input.valueAsNumber;
+              if (
+                Number.isInteger(value) &&
+                value >= 0 &&
+                value <= 0xffffffff
+              ) {
+                study.validationSeed = value;
+                st.touch('display');
+              } else
+                input.value = String(
+                  study.validationSeed ?? defaultValidationSeed,
+                );
+            }
+          "
+        />
+      </label>
+      <label class="field"
+        >Group repeated designs by
+        <select
+          :value="study.designIdColumn ?? ''"
+          :disabled="busy"
+          @change="
+            (e) => {
+              const value = (e.target as HTMLSelectElement).value;
+              study.designIdColumn = value === '' ? undefined : Number(value);
+              st.touch('display');
+            }
+          "
+        >
+          <option value="">Each row is a separate design</option>
+          <option
+            v-for="(header, i) in study.snapshot.dataset?.headers"
+            :key="i"
+            :value="i"
+          >
+            {{ header }}
+          </option>
+        </select>
+      </label>
+    </div>
+    <StudyConstraints
+      ref="editor"
+      :study="study"
+      :busy="busy"
+      @changed="st.touch('display')"
+    />
     <p v-if="blocked" class="field-error">{{ blocked }}</p>
     <button class="primary" :disabled="busy || !!blocked" @click="emit('next')">
       Review and fit surrogates

@@ -177,6 +177,6 @@ test("zero lower limit excludes negative training rows and old projects keep ope
     schemaVersion: 3,
     variables: [{ ...v, binning }],
   });
-  expect(old.schemaVersion).toBe(4);
+  expect(old.schemaVersion).toBe(5);
   expect(encode(old.variables[0], "-5")).toBe(0);
 });

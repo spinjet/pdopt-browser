@@ -221,7 +221,7 @@ test("four-side connections, exact numeric events, image and dependent sample do
   const saved = JSON.parse(
     await readFile((await (await savePromise).path())!, "utf8"),
   );
-  expect(saved.schemaVersion).toBe(4);
+  expect(saved.schemaVersion).toBe(5);
   expect(saved.edges[0]).toMatchObject({
     sourceHandle: "top",
     targetHandle: "bottom",

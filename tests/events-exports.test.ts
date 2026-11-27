@@ -163,7 +163,7 @@ test("v2 migration preserves CPT validity, evidence and layout; ports are presen
     }),
   };
   const migrated = validateProject(old);
-  expect(migrated.schemaVersion).toBe(4);
+  expect(migrated.schemaVersion).toBe(5);
   expect(migrated.cpts).toEqual(p.cpts);
   expect(migrated.variables).toEqual(old.variables);
   expect(migrated.edges[0].sourceHandle).toBe("right");

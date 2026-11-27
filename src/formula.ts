@@ -174,6 +174,7 @@ export function compileFormula(
   const missingTokens = new Set(["", ...missing]);
   return {
     references: [...references.keys()],
+    value: evaluate,
     cell(row: string[]) {
       const value = evaluate((index) => {
         const raw = row[index];
