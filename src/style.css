@@ -2048,3 +2048,21 @@ footer {
 .sample-explore {
   padding-inline: 0;
 }
+
+.study-constraints {
+  margin-block: 1.5rem;
+}
+.study-constraints h3 {
+  margin: 0 auto 0 0;
+}
+.study-constraint-dialog {
+  width: min(34rem, calc(100% - 2rem));
+}
+.study-constraint-fields {
+  display: grid;
+  gap: 0.5rem;
+  padding: 1rem;
+}
+.study-actions button + button {
+  margin-inline-start: 0.4rem;
+}

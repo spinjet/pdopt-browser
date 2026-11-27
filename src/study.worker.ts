@@ -1,5 +1,6 @@
 import {
   studySchema,
+  migrateStudyConstraints,
   datasetSchema,
   validateProject,
   resolveEvidence,
@@ -15,7 +16,7 @@ import {
 } from "./study";
 import {
   fitResponse,
-  fitStudy,
+  fitStudyWithValidation,
   surrogateFitKey,
   type ResponseModel,
 } from "./study-model";
@@ -97,7 +98,7 @@ self.onmessage = async ({ data }) => {
       self.postMessage({ id, result });
       return;
     }
-    const study = studySchema.parse(payload.study);
+    const study = migrateStudyConstraints(studySchema.parse(payload.study));
     let result: unknown;
     if (op === "counts") {
       const dataset = datasetSchema.parse(payload.dataset);
@@ -125,11 +126,13 @@ self.onmessage = async ({ data }) => {
       fitted = undefined;
       const dataset = datasetSchema.parse(payload.dataset);
       checkStudy(study, dataset);
-      const models = fitStudy(study, dataset, (current, total) =>
-        progress({ current, total }),
+      const { models, report } = fitStudyWithValidation(
+        study,
+        dataset,
+        (current, total) => progress({ current, total }),
       );
       fitted = { key: payload.key, models };
-      result = models.map((model) => model.validation);
+      result = report;
     } else if (op === "search") {
       if (!fitted || fitted.key !== payload.key)
         throw new Error("Fit the surrogates for the current setup first.");

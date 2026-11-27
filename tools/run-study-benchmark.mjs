@@ -74,10 +74,15 @@ try {
         running = false;
       });
     await monitor;
-    const cancellation = await page.evaluate(
-      (name) => window.runStudyBenchmark(name, true),
-      runtime,
-    );
+    const cancellation = {};
+    for (const estimator of runtime === "wasm"
+      ? ["sklearn-gp"]
+      : ["forest", "linear", "quadratic", "gp"]) {
+      cancellation[estimator] = await page.evaluate(
+        ([name, fit]) => window.runStudyBenchmark(name, fit),
+        [runtime, estimator],
+      );
+    }
     report.push({ ...result, peakWorkerBytes, cancellation });
   }
   console.log(JSON.stringify(report, null, 2));

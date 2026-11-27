@@ -1,39 +1,16 @@
-import type { Study, StudyValue, Variable } from "./domain";
+import type { Study, StudyValue } from "./domain";
 import { shuffle } from "./data-columns";
 import { randomGenerator } from "./numbers";
 import {
   STUDY_BUDGET,
-  studyResponses,
   type Evaluation,
   type StudyDesign,
   type StudyRegion,
   type StudyRun,
 } from "./study";
-import { checkConstraint, type ResponseModel } from "./study-model";
-
-function evaluate(
-  study: Study,
-  outputs: Evaluation["outputs"],
-  responses: Variable[],
-): Evaluation {
-  const margins: Evaluation["margins"] = {};
-  let feasible = true;
-  for (const v of responses) {
-    const constraint = study.nodes[v.id].constraint;
-    if (!constraint) continue;
-    const result = checkConstraint(v, constraint, outputs[v.id]);
-    margins[v.id] = result.margin;
-    feasible &&= result.passes;
-  }
-  return { outputs, feasible, pareto: false, margins };
-}
-
-function objectives(study: Study, responses: Variable[]) {
-  return responses.flatMap((v) => {
-    const direction = study.nodes[v.id].objective;
-    return direction ? [{ id: v.id, sign: direction === "min" ? 1 : -1 }] : [];
-  });
-}
+import type { ResponseModel } from "./study-model";
+import { evaluateCandidates } from "./study-evaluate";
+import { buildStudyPlan } from "./study-plan";
 
 function dominates(a: number[], b: number[]) {
   return (
@@ -61,11 +38,16 @@ export function searchStudy(
     total: number;
     evaluated: number;
     feasible: number;
+    violated: number;
+    unevaluable: number;
   }) => void,
 ): StudyRun {
   const rng = randomGenerator(11593);
-  const responses = studyResponses(study);
-  const objective = objectives(study, responses);
+  const plan = buildStudyPlan(study);
+  const objective = plan.objectives.map((v) => ({
+    id: v.id,
+    sign: study.nodes[v.id].objective === "min" ? 1 : -1,
+  }));
   const objectiveValue = (evaluation: Evaluation) =>
     objective.map(({ id, sign }) => sign * Number(evaluation.outputs[id]));
   const fixed = Object.fromEntries(
@@ -80,7 +62,7 @@ export function searchStudy(
     1,
     Math.min(128, Math.floor(STUDY_BUDGET / retained.length)),
   );
-  let feasible = 0;
+  const summary = { feasible: 0, violated: 0, unevaluable: 0 };
   for (const [position, region] of retained.entries()) {
     const dimensions = Object.entries(region.bounds);
     const seen = new Set<string>();
@@ -92,19 +74,28 @@ export function searchStudy(
         seen.add(key);
         return true;
       });
-      const predictions = models.map((model) => model.predict(unique));
+      const predictions = evaluateCandidates(
+        unique,
+        models,
+        plan.constraints,
+        objective.map((item) => item.id),
+        { uncertainty: true },
+      );
       for (const [i, inputs] of unique.entries()) {
-        const outputs = Object.fromEntries(
-          models.map((model, j) => [model.variable.id, predictions[j][i]]),
-        );
-        const predicted = evaluate(study, outputs, responses);
+        const predicted = predictions[i];
         local.push({
           id: "region-" + region.index + "-design-" + (local.length + 1),
           region: region.index,
           inputs,
           predicted,
         });
-        feasible += Number(predicted.feasible);
+        summary[
+          predicted.feasible
+            ? "feasible"
+            : predicted.status === "Violated"
+              ? "violated"
+              : "unevaluable"
+        ]++;
       }
     }
     // Start with stratified coverage of each region, then refine around promising designs.
@@ -174,7 +165,7 @@ export function searchStudy(
         regions: position + 1,
         total: retained.length,
         evaluated: designs.length,
-        feasible,
+        ...summary,
       });
   }
   const front = nonDominated(
@@ -184,6 +175,7 @@ export function searchStudy(
   for (const design of front) design.predicted.pareto = true;
   return {
     designs,
+    summary,
     validation: models.map((model) => model.validation),
   };
 }

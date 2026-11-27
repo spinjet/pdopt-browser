@@ -13,10 +13,15 @@ import {
   studyObservedCounts,
   studyResponses,
 } from "../src/study";
+import { compileConstraint } from "../src/study-constraints";
+import { buildStudyPlan } from "../src/study-plan";
+import { evaluateCandidates } from "../src/study-evaluate";
 import { searchStudy } from "../src/study-search";
 import {
   fitResponse,
   fitStudy,
+  studyHoldout,
+  fitStudyWithValidation,
   scoreValidation,
   type TrainingSplit,
 } from "../src/study-model";
@@ -93,16 +98,20 @@ test("selects joint regions with ties and reports bounds clipping and available 
 test("fits the beam responses, preserves joint region bounds and checks surrogate feasibility", async () => {
   const { study, dataset, project, w, d, load, material, mass, failure } =
     await beam();
-  expect(study.nodes[mass.id]).toMatchObject({
-    objective: "min",
-    constraint: { kind: "numeric", value: 1 },
-  });
+  expect(study.nodes[mass.id].objective).toBe("min");
+  expect(study.constraints).toContainEqual(
+    expect.objectContaining({
+      kind: "numeric",
+      variableId: mass.id,
+      value: 1,
+    }),
+  );
   expect(studyResponses(study)).toHaveLength(3);
   expect(
     studyObservedCounts(study, dataset)?.reduce((a, b) => a + b, 0),
   ).toBeGreaterThan(0);
   const reopened = validateProject(
-    JSON.parse(JSON.stringify({ ...project, study })),
+    JSON.parse(JSON.stringify({ ...project, schemaVersion: 4, study })),
   );
   expect(reopened.study?.notation).toBe("Beam design");
   const { retained } = checkStudy(study, dataset);
@@ -116,6 +125,9 @@ test("fits the beam responses, preserves joint region bounds and checks surrogat
       project.variables.find((v) => v.id === id)!,
     ),
     project.missingTokens,
+    undefined,
+    "forest",
+    studyHoldout(study, dataset),
   );
   const designs = run.designs.slice(0, 5).map((design) => design.inputs);
   expect(samplingMass.fitKey).toBe(studyMass.fitKey);
@@ -143,11 +155,13 @@ test("fits the beam responses, preserves joint region bounds and checks surrogat
     }
   }
   const blocked = structuredClone(study);
-  blocked.nodes[mass.id].constraint = {
+  blocked.constraints!.push({
+    id: "unreachable",
+    variableId: mass.id,
     kind: "numeric",
     operator: "lt",
     value: 0,
-  };
+  });
   expect(
     searchStudy(blocked, retained, models, () => {}).designs.every(
       (d) => !d.predicted.feasible,
@@ -172,6 +186,7 @@ test("normalises held-out numeric errors by the observed range", async () => {
     maxObserved: 8,
     meanRelative: 0.2,
     maxRelative: 0.3,
+    maxAbsolute: 3,
   });
   const constant = scoreValidation(
     mass,
@@ -182,4 +197,196 @@ test("normalises held-out numeric errors by the observed range", async () => {
   expect(constant.value).toBeCloseTo(2 / 3);
   expect(constant.numericError?.meanRelative).toBeNull();
   expect(constant.numericError?.maxRelative).toBeNull();
+});
+
+test("migrates legacy limits and preserves the strict boundary at full precision", async () => {
+  const { project, study, mass, failure, w } = await beam();
+  delete study.constraints;
+  study.nodes[mass.id].constraint = {
+    kind: "numeric",
+    operator: "lt",
+    value: 1,
+  };
+  study.nodes[failure.id].constraint = {
+    kind: "categories",
+    values: ["Passes"],
+  };
+  const restored = validateProject(
+    JSON.parse(JSON.stringify({ ...project, study })),
+  ).study!;
+  expect(restored.nodes[mass.id].constraint).toBeUndefined();
+  const numeric = restored.constraints!.find((c) => c.kind === "numeric")!;
+  const rule = compileConstraint(restored, numeric);
+  expect(rule.check({ [mass.id]: 1 })).toMatchObject({
+    status: "Violated",
+    margin: 0,
+  });
+  if (numeric.kind !== "numeric") throw new Error("Expected numerical rule");
+  expect(
+    compileConstraint(restored, { ...numeric, operator: "lte" }).check({
+      [mass.id]: 1,
+    }),
+  ).toMatchObject({ status: "Pass", margin: 0 });
+  expect(rule.check({})).toMatchObject({
+    status: "Unevaluable",
+    reason: expect.stringContaining(mass.label),
+  });
+  const relation = compileConstraint(restored, {
+    id: "relation",
+    kind: "expression",
+    expression: `[${w.label}] / ([${w.label}] - 15) >= 1`,
+  });
+  expect(relation.check({ [w.id]: 15 })).toMatchObject({
+    status: "Unevaluable",
+    reason: "Division by zero.",
+  });
+  expect(restored.constraints).toContainEqual(
+    expect.objectContaining({ kind: "categories", values: ["Passes"] }),
+  );
+  expect(
+    validateProject(JSON.parse(JSON.stringify({ ...project, study: restored })))
+      .study?.constraints,
+  ).toEqual(restored.constraints);
+});
+
+test("validates a chained failure model on the same beam holdout as direct modelling", async () => {
+  const { study, dataset, w, d, load, material, failure } = await beam();
+  const stress = study.snapshot.variables[4];
+  study.snapshot.edges = [
+    [w, stress],
+    [d, stress],
+    [load, stress],
+    [stress, failure],
+    [material, failure],
+  ].map(([a, b], i) => ({
+    id: "edge-" + i,
+    source: a.id,
+    target: b.id,
+  }));
+  study.nodes[failure.id].predictorMode = "parents";
+  const { report } = fitStudyWithValidation(study, dataset, () => {});
+  const order = report.validation.map((v) => v.id);
+  expect(order.indexOf(stress.id)).toBeLessThan(order.indexOf(failure.id));
+  expect(report.comparison?.scored).toBe(report.holdout);
+  expect(
+    report.comparison?.responses.find((row) => row.configured.id === failure.id)
+      ?.shared,
+  ).toBe(report.holdout);
+  expect(
+    report.validation
+      .find((row) => row.id === failure.id)
+      ?.confusion?.counts.flat()
+      .reduce((a, b) => a + b, 0),
+  ).toBe(report.holdout);
+});
+
+test("filters input-only violations before predicting and reuses one intermediate across unrelated responses", async () => {
+  const dataset = await parseCsv(
+    "Diameter,Pressure,Flow,Energy,Design\n" +
+      Array.from(
+        { length: 40 },
+        (_, i) =>
+          `${i + 1},${2 * (i + 1)},${4 * (i + 1)},${8 * (i + 1)},Group-${i >> 1}`,
+      ).join("\n"),
+    "pump.csv",
+    ",",
+    [""],
+  );
+  const project = emptyProject();
+  const vars = (project.variables = [0, 1, 2, 3].map((i) =>
+    configureVariable(
+      dataset,
+      project,
+      "c" + i,
+      "discretised",
+      "equalWidth",
+      2,
+      [],
+    ),
+  ));
+  const [diameter, pressure, flow, energy] = vars;
+  project.edges = [
+    [diameter, pressure],
+    [pressure, flow],
+    [pressure, energy],
+  ].map(([a, b], i) => ({ id: "pump-" + i, source: a.id, target: b.id }));
+  const study = initialiseStudy(
+    project,
+    {
+      targetIds: [diameter.id],
+      shape: [2],
+      posterior: [0.5, 0.5],
+      prior: [0.5, 0.5],
+    },
+    "pump",
+    "Pump study",
+    0,
+    dataset.hash,
+  );
+  study.nodes[energy.id] = {
+    role: "response",
+    objective: "min",
+    predictorMode: "parents",
+    estimator: "linear",
+  };
+  study.nodes[flow.id].predictorMode = "parents";
+  study.nodes[flow.id].estimator = "quadratic";
+  study.nodes[pressure.id].estimator = "gaussian-process";
+  study.constraints = [
+    {
+      id: "inlet",
+      kind: "numeric",
+      variableId: diameter.id,
+      operator: "gte",
+      value: 10,
+    },
+    { id: "flow-limit", kind: "expression", expression: "[Flow] >= 20" },
+  ];
+  study.validationSeed = 10;
+  study.designIdColumn = 4;
+  const holdout = studyHoldout(study, dataset);
+  expect(holdout).toEqual(studyHoldout(study, dataset));
+  expect([...holdout].every((i) => holdout.has(i ^ 1))).toBe(true);
+  const plan = buildStudyPlan(study);
+  expect(
+    plan.models.filter((entry) => entry.response.id === pressure.id),
+  ).toHaveLength(1);
+  const models = fitStudy(study, dataset, () => {});
+  const shared = models.find((model) => model.variable.id === pressure.id)!;
+  const original = shared.predictDetails!;
+  let calls = 0;
+  shared.predictDetails = (rows) => {
+    calls += rows.length;
+    return original(rows);
+  };
+  const results = evaluateCandidates(
+    [{ [diameter.id]: 2 }, { [diameter.id]: 15 }, {}],
+    models,
+    plan.constraints,
+    [energy.id],
+    { uncertainty: true },
+  );
+  expect(results.map((row) => row.status)).toEqual([
+    "Violated",
+    "Pass",
+    "Unevaluable",
+  ]);
+  expect(calls).toBe(1);
+  expect(results[1].uncertainty[pressure.id]).toBeGreaterThanOrEqual(0);
+  expect(results[1].outputs).toHaveProperty(flow.id);
+  expect(results[1].outputs).toHaveProperty(energy.id);
+  const rerun = evaluateCandidates(
+    [{ [diameter.id]: 15 }],
+    fitStudy(study, dataset, () => {}),
+    plan.constraints,
+    [energy.id],
+    { uncertainty: true },
+  );
+  expect(rerun[0]).toEqual(results[1]);
+  study.snapshot.edges.push({
+    id: "cycle",
+    source: energy.id,
+    target: pressure.id,
+  });
+  expect(() => buildStudyPlan(study)).toThrow(/cycle/i);
 });

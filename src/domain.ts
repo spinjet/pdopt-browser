@@ -117,7 +117,7 @@ export const resultSchema = z.object({
   ),
 });
 const projectCoreSchema = z.object({
-  schemaVersion: z.union([z.literal(3), z.literal(4)]),
+  schemaVersion: z.union([z.literal(3), z.literal(4), z.literal(5)]),
   id: z.string(),
   example: z.literal("cantilever").optional(),
   name: z.string().min(1).max(200),
@@ -151,6 +151,33 @@ const projectCoreSchema = z.object({
   updatedAt: z.string(),
 });
 export const studyValueSchema = z.union([finite, z.string()]);
+const studyLimitOptions = [
+  z.object({
+    kind: z.literal("numeric"),
+    operator: z.enum(["lt", "lte", "gt", "gte"]),
+    value: finite,
+  }),
+  z.object({
+    kind: z.literal("categories"),
+    values: z.array(z.string()).max(LIMITS.states),
+  }),
+  z.object({
+    kind: z.literal("states"),
+    states: z.array(z.number().int().nonnegative()).max(LIMITS.states),
+  }),
+] as const;
+export const designConstraintSchema = z.object({ id: z.string().min(1) }).and(
+  z.union([
+    ...studyLimitOptions.map((rule) =>
+      rule.extend({ variableId: z.string().min(1) }),
+    ),
+    z.object({
+      kind: z.literal("expression"),
+      expression: z.string().trim().min(1).max(2000),
+    }),
+  ]),
+);
+export type DesignConstraint = z.infer<typeof designConstraintSchema>;
 export const studyNodeSchema = z.object({
   role: z.enum(["unused", "input", "fixed", "response"]),
   min: finite.optional(),
@@ -158,22 +185,11 @@ export const studyNodeSchema = z.object({
   categories: z.array(z.string()).max(LIMITS.states).optional(),
   value: studyValueSchema.optional(),
   objective: z.enum(["min", "max"]).optional(),
-  constraint: z
-    .union([
-      z.object({
-        kind: z.literal("numeric"),
-        operator: z.enum(["lt", "lte", "gt", "gte"]),
-        value: finite,
-      }),
-      z.object({
-        kind: z.literal("categories"),
-        values: z.array(z.string()).max(LIMITS.states),
-      }),
-      z.object({
-        kind: z.literal("states"),
-        states: z.array(z.number().int().nonnegative()).max(LIMITS.states),
-      }),
-    ])
+  constraint: z.union(studyLimitOptions).optional(),
+  predictorMode: z.enum(["direct", "parents"]).optional(),
+  extraPredictors: z.array(z.string()).max(100).optional(),
+  estimator: z
+    .enum(["forest", "linear", "quadratic", "gaussian-process"])
     .optional(),
   predictors: z.array(z.string()).max(100).optional(),
 });
@@ -189,9 +205,17 @@ export const studySchema = z.object({
   posterior: z.array(finite.min(0).max(1)).min(1).max(4096),
   coverage: finite.gt(0).max(1),
   nodes: z.record(z.string(), studyNodeSchema),
+  constraints: z.array(designConstraintSchema).max(200).optional(),
+  validationSeed: z.number().int().min(0).max(0xffffffff).optional(),
+  designIdColumn: z
+    .number()
+    .int()
+    .min(0)
+    .max(LIMITS.columns - 1)
+    .optional(),
 });
 export const projectSchema = projectCoreSchema.extend({
-  schemaVersion: z.literal(4),
+  schemaVersion: z.literal(5),
   probabilityDecimalPlaces: z.number().int().min(0).max(8).optional(),
   heatmapPalette: z
     .enum([
@@ -221,6 +245,17 @@ export const projectSchema = projectCoreSchema.extend({
   study: studySchema.optional(),
 });
 export type Study = z.infer<typeof studySchema>;
+/** An explicit empty list means all constraints were removed by the engineer. */
+export function migrateStudyConstraints(study: Study) {
+  study.constraints ??= Object.entries(study.nodes).flatMap(
+    ([variableId, node]) =>
+      node.constraint
+        ? [{ ...node.constraint, variableId, id: "legacy-" + variableId }]
+        : [],
+  );
+  for (const node of Object.values(study.nodes)) delete node.constraint;
+  return study;
+}
 export type StudyNode = z.infer<typeof studyNodeSchema>;
 export type StudyValue = z.infer<typeof studyValueSchema>;
 export type Variable = z.infer<typeof variableSchema>;
@@ -245,7 +280,7 @@ export const datasetSchema = z.object({
 export type Dataset = z.infer<typeof datasetSchema>;
 export function emptyProject(): Project {
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     id: crypto.randomUUID(),
     name: "Untitled network",
     variables: [],
@@ -360,9 +395,9 @@ export function validateProject(input: unknown): Project {
     input &&
     typeof input === "object" &&
     "schemaVersion" in input &&
-    input.schemaVersion === 3
+    (input.schemaVersion === 3 || input.schemaVersion === 4)
   )
-    input = { ...input, schemaVersion: 4 };
+    input = { ...input, schemaVersion: 5 };
   if (
     input &&
     typeof input === "object" &&
@@ -499,7 +534,7 @@ export function validateProject(input: unknown): Project {
     }
   }
   if (p.study) {
-    const study = p.study;
+    const study = migrateStudyConstraints(p.study);
     const graph = validateProject(study.snapshot);
     const shape = study.targetIds.map(
       (id) => graph.variables.find((v) => v.id === id)?.states.length,
@@ -516,6 +551,15 @@ export function validateProject(input: unknown): Project {
       graph.variables.some((v) => !Object.hasOwn(study.nodes, v.id))
     )
       throw new Error("Invalid study query snapshot or node settings.");
+    if (
+      new Set(study.constraints!.map((c) => c.id)).size !==
+        study.constraints!.length ||
+      study.constraints!.some(
+        (c) =>
+          c.kind !== "expression" && !Object.hasOwn(study.nodes, c.variableId),
+      )
+    )
+      throw new Error("Invalid study constraint IDs or variables.");
   }
   validateEvidence(p.variables, p.evidence);
   for (const group of p.queryGroups) {

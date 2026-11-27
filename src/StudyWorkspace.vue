@@ -5,6 +5,8 @@ import { useProject } from "./store";
 import { checkStudy, type StudyRun, type Validation } from "./study";
 import StudySetup from "./StudySetup.vue";
 import StudyExplore from "./StudyExplore.vue";
+import StudyValidationReportPanel from "./StudyValidationReport.vue";
+import type { StudyValidationReport } from "./study-model";
 
 const st = useProject();
 const study = computed(() => st.project.study);
@@ -21,6 +23,7 @@ const error = ref("");
 const counts = ref<number[]>();
 const diagnostic = ref<(number | null)[]>();
 const estimate = ref<Validation[]>();
+const report = shallowRef<StudyValidationReport>();
 const run = shallowRef<StudyRun>();
 const runNumber = ref(0);
 const current = ref(0),
@@ -29,12 +32,17 @@ const current = ref(0),
   feasible = ref(0);
 const fitKey = ref("");
 const validationDetail = ref("");
+const stale = ref(false);
+const searchSummary = ref<StudyRun["summary"]>();
 const key = computed(() =>
   study.value
     ? JSON.stringify([
         study.value.id,
         study.value.coverage,
         study.value.nodes,
+        study.value.constraints,
+        study.value.validationSeed,
+        study.value.designIdColumn,
         st.dataset?.hash,
       ])
     : "",
@@ -60,6 +68,7 @@ watch(
     if (task.value) client.cancel();
     task.value = undefined;
     counts.value = undefined;
+    stale.value = false;
     view.value = "setup";
     error.value = "";
   },
@@ -73,7 +82,10 @@ watch(
 watch(key, () => {
   if (task.value) client.cancel();
   fitKey.value = "";
+  if (run.value) stale.value = true;
   estimate.value = undefined;
+  report.value = undefined;
+  searchSummary.value = undefined;
   validationDetail.value = "";
   diagnostic.value = undefined;
   run.value = undefined;
@@ -154,11 +166,12 @@ async function fit() {
   fitKey.value = "";
   estimate.value = undefined;
   resetProgress();
-  const values = await request<Validation[]>("fit", {
+  const values = await request<StudyValidationReport>("fit", {
     dataset: toRaw(st.dataset),
   });
   if (values) {
-    estimate.value = values;
+    report.value = values;
+    estimate.value = values.validation;
     fitKey.value = key.value;
   }
 }
@@ -168,6 +181,8 @@ async function search() {
   const result = await request<StudyRun>("search");
   if (result) {
     run.value = result;
+    stale.value = false;
+    searchSummary.value = result.summary;
     runNumber.value++;
     view.value = "explore";
   }
@@ -213,6 +228,9 @@ function percentOfRange(ratio: number | null) {
       <strong>Start study from this query</strong> in Results.
     </p>
     <template v-else>
+      <p v-if="stale" role="status" class="tiny muted">
+        Study settings changed. Refit and search to see a current front.
+      </p>
       <div
         class="view-switch study-views"
         role="group"
@@ -279,12 +297,22 @@ function percentOfRange(ratio: number | null) {
           Fit a model for each objective or constraint and review its held-out
           performance before searching.
         </p>
+        <p v-if="searchSummary" role="status">
+          Search results · {{ searchSummary.feasible }} feasible ·
+          {{ searchSummary.violated }} violated ·
+          {{ searchSummary.unevaluable }} unevaluable
+        </p>
         <template v-if="estimate">
+          <StudyValidationReportPanel
+            v-if="report"
+            :study="study"
+            :report="report"
+          />
           <p class="tiny muted">
-            Seeded held-out split. Relative MAE divides mean absolute error by
-            the observed range of the held-out response. Numeric boundary counts
-            use ±10% of the constraint limit. State constraints count all
-            held-out rows.
+            Models share one holdout. Relative errors use the observed range of
+            the scored held-out response. For a chain, predictions start from
+            recorded design inputs and operating conditions and use predicted
+            intermediates.
           </p>
           <div class="study-table study-validation">
             <table>
@@ -310,13 +338,23 @@ function percentOfRange(ratio: number | null) {
                       {{ name(row.id) }}
                     </button>
                   </th>
-                  <td>{{ row.predictors.map(name).join(", ") }}</td>
+                  <td>
+                    {{ row.predictors.map(name).join(", ") }}
+                    <div class="tiny muted">
+                      {{
+                        row.structure === "parents" ? "Graph parents" : "Direct"
+                      }}
+                      · {{ row.estimator }}
+                    </div>
+                  </td>
                   <td>
                     {{ row.metric }}
                     {{
-                      row.metric === "Accuracy"
-                        ? (row.value * 100).toFixed(1) + "%"
-                        : Number(row.value.toPrecision(4))
+                      !row.holdout
+                        ? "Unavailable"
+                        : row.metric === "Accuracy"
+                          ? (row.value * 100).toFixed(1) + "%"
+                          : Number(row.value.toPrecision(4))
                     }}
                     <div v-if="row.numericError" class="tiny muted">
                       Relative MAE
@@ -326,7 +364,7 @@ function percentOfRange(ratio: number | null) {
                   <td>{{ row.fittedRows.toLocaleString() }}</td>
                   <td>
                     {{
-                      study.nodes[row.id].constraint
+                      row.violations || row.near
                         ? row.missed + " of " + row.violations
                         : "—"
                     }}
@@ -352,6 +390,7 @@ function percentOfRange(ratio: number | null) {
                         </dd>
                         <dt>Largest absolute error (% of range)</dt>
                         <dd>
+                          {{ row.numericError.maxAbsolute?.toPrecision(4) }} ·
                           {{ percentOfRange(row.numericError.maxRelative) }}
                         </dd>
                         <dd
@@ -364,7 +403,30 @@ function percentOfRange(ratio: number | null) {
                           errors are undefined.
                         </dd>
                       </template>
-                      <template v-if="study.nodes[row.id].constraint">
+                      <template v-if="row.confusion">
+                        <dt>Confusion matrix (observed → predicted)</dt>
+                        <dd
+                          v-for="(labels, i) in row.confusion.counts"
+                          :key="i"
+                        >
+                          {{ row.confusion.labels[i] }} →
+                          {{
+                            labels
+                              .map(
+                                (n, j) => row.confusion!.labels[j] + ": " + n,
+                              )
+                              .join(", ")
+                          }}
+                        </dd>
+                      </template>
+                      <template v-if="row.intervalCoverage">
+                        <dt>Observed coverage of nominal 95% intervals</dt>
+                        <dd>
+                          {{ row.intervalCoverage.covered }} /
+                          {{ row.intervalCoverage.total }}
+                        </dd>
+                      </template>
+                      <template v-if="row.violations || row.near">
                         <dt>Near the limit</dt>
                         <dd>
                           {{ row.nearMissed }} missed across

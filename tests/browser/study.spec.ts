@@ -236,11 +236,8 @@ test("launches a query study, explores the predicted front and links plot select
     study.getByRole("combobox", { name: "Objective", exact: true }),
   ).toHaveValue("min");
   await expect(
-    study.getByRole("combobox", { name: "Constraint", exact: true }),
-  ).toHaveValue("numeric");
-  await expect(
-    study.getByRole("spinbutton", { name: "Limit", exact: true }),
-  ).toHaveValue("1");
+    study.getByRole("row").filter({ hasText: "Beam mass (kg) < 1" }),
+  ).toBeVisible();
   await study
     .getByRole("button", { name: "Review and fit surrogates" })
     .click();
@@ -449,4 +446,139 @@ test("sampling keeps seeded draws and reuses compatible cantilever study models"
   const manifest = JSON.parse(strFromU8(prediction["manifest.json"]));
   expect(manifest.surrogates[0].reused).toBe(true);
   expect(manifest.columns.at(-1).source).toBe("predicted");
+});
+
+test("saves explicit study constraints and searches a validated surrogate chain", async ({
+  page,
+}) => {
+  test.setTimeout(60000);
+  page.on("dialog", (dialog) => dialog.accept());
+  await loadDesignQuery(page);
+  await page
+    .getByRole("button", { name: "Start study from this query" })
+    .click();
+  const study = page.locator("#study-panel");
+  const constraints = study.getByRole("region", { name: "Design constraints" });
+  const editor = page.getByRole("dialog", { name: "Add design constraint" });
+  async function numeric(variable: string, op: string, value: string) {
+    await constraints
+      .getByRole("button", { name: "Add numerical constraint" })
+      .click();
+    await editor
+      .getByRole("combobox", { name: "Variable", exact: true })
+      .selectOption({ label: variable });
+    await editor
+      .getByRole("combobox", { name: "Operator", exact: true })
+      .selectOption(op);
+    await editor.getByLabel("Limit", { exact: true }).fill(value);
+    await editor.getByRole("button", { name: "Save constraint" }).click();
+    await expect(editor).toBeHidden();
+  }
+  await numeric("Tip deflection (mm)", "lte", "2");
+  await numeric("Beam mass (kg)", "gte", "0.5");
+  await constraints.getByRole("button", { name: "Add relationship" }).click();
+  await editor
+    .getByLabel("Relationship", { exact: true })
+    .fill("[Unknown] >= 1");
+  await editor.getByRole("button", { name: "Save constraint" }).click();
+  await expect(editor.getByRole("alert")).toContainText("Unknown column");
+  await editor
+    .getByLabel("Relationship", { exact: true })
+    .fill("[Depth (mm)] >= 1.5 * [Width (mm)]");
+  await editor.getByRole("button", { name: "Save constraint" }).click();
+  await expect(editor).toBeHidden();
+  const inspect = study.getByRole("combobox", { name: "Inspect", exact: true });
+  await inspect.selectOption({ label: "Failure" });
+  const structure = study.getByRole("combobox", {
+    name: "Predictor structure",
+  });
+  await structure.selectOption("parents");
+  await expect(
+    study
+      .getByRole("complementary")
+      .getByText("Root stress (MPa) · Predicted intermediate", {
+        exact: true,
+      }),
+  ).toBeVisible();
+  await inspect.selectOption({ label: "Beam mass (kg)" });
+  await study
+    .getByRole("combobox", { name: "Estimator", exact: true })
+    .selectOption("gaussian-process");
+  await expect(study.getByText(/Fits up to 128/)).toBeVisible();
+  const seed = study.getByRole("spinbutton", { name: "Validation seed" });
+  await seed.fill("1234");
+  await seed.press("Tab");
+  await study
+    .getByRole("button", { name: "Review and fit surrogates" })
+    .click();
+  const search = study.getByRole("button", { name: "Search retained regions" });
+  await expect(search).toBeEnabled({ timeout: 25000 });
+  await study
+    .getByText("Direct versus graph-based predictions", { exact: true })
+    .click();
+  await expect(
+    study.getByText(/shared rows with evaluable feasibility/),
+  ).toBeVisible();
+  await search.click();
+  await expect(study.getByText(/Predicted search results/)).toBeVisible({
+    timeout: 25000,
+  });
+  const download = page.waitForEvent("download");
+  await study.getByRole("button", { name: "Export selected CSV" }).click();
+  const { data } = Papa.parse<Record<string, string>>(
+    await readFile((await (await download).path())!, "utf8"),
+    { header: true, skipEmptyLines: true },
+  );
+  expect(data.length).toBeGreaterThan(0);
+  for (const row of data) {
+    expect(row["Pareto"]).toBe("1");
+    expect(Number(row["Tip deflection (mm)"])).toBeLessThanOrEqual(2);
+    expect(Number(row["Depth (mm)"])).toBeGreaterThanOrEqual(
+      1.5 * Number(row["Width (mm)"]),
+    );
+    expect(Number(row["Beam mass (kg)"])).toBeGreaterThanOrEqual(0.5);
+    expect(Number(row["Beam mass (kg)"])).toBeLessThan(1);
+    expect(row["Failure"]).toBe("Passes");
+  }
+  await study
+    .getByRole("button", { name: "Design table", exact: true })
+    .click();
+  await study
+    .getByRole("region", { name: "Design table" })
+    .getByRole("button", { name: /^region-/ })
+    .first()
+    .click();
+  await expect(
+    study.getByRole("region", { name: "Predicted candidate detail" }),
+  ).toContainText("conditional on supplied parent values");
+  await study.getByRole("button", { name: "Setup", exact: true }).click();
+  await seed.fill("1235");
+  await seed.press("Tab");
+  await expect(study.getByText(/Study settings changed/)).toBeVisible();
+  await expect(
+    study.getByRole("button", { name: "Explore", exact: true }),
+  ).toBeDisabled();
+  const project = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Save project", exact: true }).click();
+  await page
+    .getByTestId("project-file")
+    .setInputFiles((await (await project).path())!);
+  await expect(
+    page.getByText("Project and dataset opened.", { exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("tab", { name: "Optimisation Study", exact: true })
+    .click();
+  await expect(seed).toHaveValue("1235");
+  await expect(
+    constraints.getByText("[Depth (mm)] >= 1.5 * [Width (mm)]", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await inspect.selectOption({ label: "Failure" });
+  await expect(structure).toHaveValue("parents");
+  await inspect.selectOption({ label: "Beam mass (kg)" });
+  await expect(
+    study.getByRole("combobox", { name: "Estimator", exact: true }),
+  ).toHaveValue("gaussian-process");
 });

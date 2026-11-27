@@ -23,7 +23,12 @@
             frame = requestAnimationFrame(tick);
           }
           frame = requestAnimationFrame(tick);
+          const timeout = setTimeout(() => {
+            finish();
+            reject(new Error("The study benchmark exceeded 120 seconds."));
+          }, 120000);
           function finish() {
+            clearTimeout(timeout);
             cancelAnimationFrame(frame);
             worker.terminate();
           }
@@ -37,7 +42,7 @@
               reject(new Error(data.error));
               return;
             }
-            if (data.ready && stopAfter) {
+            if (stopAfter && data.fitStarted === stopAfter) {
               setTimeout(() => {
                 const start = performance.now();
                 finish();
@@ -50,9 +55,12 @@
             if (data.report && !stopAfter) {
               finish();
               resolve({ runtime, ...data, maxFrameGapMs, frames });
+            } else if (data.report && stopAfter) {
+              finish();
+              reject(new Error("Benchmark never started " + stopAfter + "."));
             }
           };
-          worker.postMessage({ runtime });
+          worker.postMessage({ runtime, stopAfter });
         });
     </script>
   </body>

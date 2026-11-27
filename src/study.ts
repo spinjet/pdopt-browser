@@ -1,8 +1,14 @@
+import { buildStudyPlan, suggestPredictors } from "./study-plan";
+import { GP_DATASET_LIMIT } from "./study-estimators";
+import { studyHoldout } from "./study-partition";
+import type { ConstraintOutcome, ConstraintStatus } from "./study-constraints";
+export { suggestPredictors } from "./study-plan";
 import { numericBounds } from "./domain";
 import {
   allowedStates,
   inferenceReady,
   studySchema,
+  migrateStudyConstraints,
   type Dataset,
   type EvidenceValue,
   type Project,
@@ -37,6 +43,7 @@ export interface Validation {
     maxObserved: number;
     meanRelative: number | null;
     maxRelative: number | null;
+    maxAbsolute?: number;
   };
   rows: number;
   dropped: number;
@@ -46,12 +53,20 @@ export interface Validation {
   missed: number;
   near: number;
   nearMissed: number;
+  estimator?: import("./study-plan").Estimator;
+  structure?: "direct" | "parents";
+  confusion?: { labels: string[]; counts: number[][] };
+  intervalCoverage?: { covered: number; total: number };
 }
 export interface Evaluation {
   outputs: Record<string, StudyValue>;
   margins: Record<string, number>;
   feasible: boolean;
   pareto: boolean;
+  status: ConstraintStatus;
+  outcomes: ConstraintOutcome[];
+  reason?: string;
+  uncertainty: Record<string, number>;
 }
 export interface StudyDesign {
   id: string;
@@ -62,6 +77,7 @@ export interface StudyDesign {
 export interface StudyRun {
   validation: Validation[];
   designs: StudyDesign[];
+  summary?: { feasible: number; violated: number; unevaluable: number };
 }
 export const STUDY_BUDGET = 12000;
 export const MAX_JS_TRAINING_ROWS = 768;
@@ -95,24 +111,6 @@ function initialBounds(
   return (
     v.binning?.fittedRange ?? [Number(v.states[0]), Number(v.states.at(-1))]
   );
-}
-
-export function suggestPredictors(study: Study, response: string): string[] {
-  const upstream = new Set<string>();
-  function visit(id: string) {
-    for (const edge of study.snapshot.edges) {
-      if (edge.target === id && !upstream.has(edge.source)) {
-        upstream.add(edge.source);
-        visit(edge.source);
-      }
-    }
-  }
-  visit(response);
-  const available = study.snapshot.variables.filter(
-    (v) => v.columnId && ["input", "fixed"].includes(study.nodes[v.id].role),
-  );
-  const connected = available.filter((v) => upstream.has(v.id));
-  return (connected.length ? connected : available).map((v) => v.id);
 }
 
 export function initialiseStudy(
@@ -201,7 +199,7 @@ export function initialiseStudy(
         study.nodes[v.id].predictors = suggestPredictors(study, v.id);
     }
   }
-  return study;
+  return migrateStudyConstraints(study);
 }
 
 export function fixedValueAllowed(study: Study, v: Variable, value: unknown) {
@@ -349,56 +347,42 @@ export function selectRegions(study: Study) {
 }
 
 export function studyResponses(study: Study) {
-  return study.snapshot.variables.filter((v) => {
-    const node = study.nodes[v.id];
-    return node.role === "response" && (node.objective || node.constraint);
-  });
+  return buildStudyPlan(study).models.map((entry) => entry.response);
 }
 
 export function checkStudy(study: Study, dataset?: Dataset) {
+  const plan = buildStudyPlan(study);
   if (!dataset || study.sourceHash !== dataset.hash)
     throw new Error(
       "Attach the dataset used by this query, or run the query again with the current dataset.",
     );
-  const inputs = study.snapshot.variables.filter(
-    (v) => study.nodes[v.id].role === "input",
-  );
-  if (!inputs.length) throw new Error("Choose at least one design input.");
-  const responses = studyResponses(study);
-  if (!responses.some((v) => study.nodes[v.id].objective))
+  if (!study.snapshot.variables.some((v) => study.nodes[v.id].role === "input"))
+    throw new Error("Choose at least one design input.");
+  if (!plan.objectives.length)
     throw new Error("Choose at least one objective.");
+  if (
+    study.designIdColumn !== undefined &&
+    dataset.headers[study.designIdColumn] === undefined
+  )
+    throw new Error("Choose a valid design ID column.");
   for (const v of study.snapshot.variables) {
-    const node = study.nodes[v.id];
-    if (node.role === "fixed" && !fixedValueAllowed(study, v, node.value))
+    if (
+      study.nodes[v.id].role === "fixed" &&
+      !fixedValueAllowed(study, v, study.nodes[v.id].value)
+    )
       throw new Error("Set a valid operating value for " + v.label + ".");
   }
-  for (const v of responses) {
-    const node = study.nodes[v.id];
-    if (node.objective && isCategorical(v))
-      throw new Error("Objectives must be numeric.");
-    if (
-      node.constraint?.kind === "categories" &&
-      !node.constraint.values.length
-    )
-      throw new Error("Choose accepted categories for " + v.label + ".");
-    if (node.constraint?.kind === "states" && !node.constraint.states.length)
-      throw new Error("Choose accepted states for " + v.label + ".");
-    const ids = node.predictors ?? suggestPredictors(study, v.id);
-    if (
-      !ids.length ||
-      new Set(ids).size !== ids.length ||
-      ids.some((id) => !["input", "fixed"].includes(study.nodes[id]?.role))
-    )
-      throw new Error(
-        "Choose design inputs or fixed conditions as predictors for " +
-          v.label +
-          ".",
-      );
-    for (const variable of [
-      v,
-      ...ids.map((id) => study.snapshot.variables.find((x) => x.id === id)!),
-    ]) {
-      const i = variable.columnId ? Number(variable.columnId.slice(1)) : -1;
+  if (
+    dataset.rows.length > GP_DATASET_LIMIT &&
+    plan.models.some((model) => model.estimator === "gaussian-process")
+  )
+    throw new Error(
+      `Gaussian process has been benchmarked on datasets up to ${GP_DATASET_LIMIT.toLocaleString()} rows. Choose another estimator for this dataset.`,
+    );
+  const holdout = studyHoldout(study, dataset);
+  for (const { response, predictors } of plan.models) {
+    const columns = [response, ...predictors].map((variable) => {
+      const i = Number(variable.columnId.slice(1));
       if (
         !dataset.headers[i] ||
         dataset.headers[i] !== study.snapshot.dataset?.headers[i]
@@ -406,7 +390,33 @@ export function checkStudy(study: Study, dataset?: Dataset) {
         throw new Error(
           "No matching training column for " + variable.label + ".",
         );
+      return { i, variable };
+    });
+    const missing = new Set(["", ...study.snapshot.missingTokens]);
+    let count = 0,
+      train = 0;
+    for (const [index, row] of dataset.rows.entries()) {
+      if (
+        !columns.every(({ i, variable }) => {
+          const raw = row[i];
+          if (raw === undefined || missing.has(raw)) return false;
+          try {
+            encode(variable, raw);
+            return true;
+          } catch {
+            return false;
+          }
+        })
+      )
+        continue;
+      count++;
+      if (!holdout.has(index)) train++;
+      if (train >= 4 && count >= 8) break;
     }
+    if (train < 4 || count < 8)
+      throw new Error(
+        `${response.label} needs 8 usable rows, at least 4 in the training partition.`,
+      );
   }
   const selection = selectRegions(study);
   if (!selection.retained.length)
@@ -477,7 +487,7 @@ export function diagnosticProbabilities<
 >(study: Study, run: (project: Project) => Promise<T>) {
   const base: Project = {
     ...study.snapshot,
-    schemaVersion: 4,
+    schemaVersion: 5,
     evidence: {},
     queryGroups: [
       { id: study.groupId, name: "Study regions", targetIds: study.targetIds },
@@ -491,12 +501,11 @@ export function diagnosticProbabilities<
       if (!fixedValueAllowed(study, v, node.value))
         throw new Error("Set a valid operating value for " + v.label + ".");
       base.evidence[v.id] = encode(v, String(node.value));
-    }
-    if (node.role === "response" && node.constraint) {
-      const event = constraintEvent(v, node.constraint);
-      if (!event) throw new Error("Set an accepted state for " + v.label + ".");
-      requirements[v.id] = event;
-    }
+    } else if (
+      !study.targetIds.includes(v.id) &&
+      study.snapshot.evidence[v.id] !== undefined
+    )
+      requirements[v.id] = study.snapshot.evidence[v.id];
   }
   if (!Object.keys(requirements).length)
     throw new Error("Choose at least one constraint.");
